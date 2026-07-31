@@ -1,0 +1,19 @@
+{
+  "name": "greedy-gauntlet",
+  "description": "A Phaser 3 TypeScript template using Vite.",
+  "version": "0.0.0",
+  "author": "Daniel Whiffing <danielwhiffing@gmail.com> (https://directive.software/)",
+  "homepage": "https://github.com/dwhiffing/greedy-gauntlet",
+  "scripts": {
+    "dev": "vite --config vite/config.dev.mjs",
+    "build": "vite build --config vite/config.prod.mjs"
+  },
+  "devDependencies": {
+    "terser": "^5.39.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.3.1"
+  },
+  "dependencies": {
+    "phaser": "^3.88.2"
+  }
+}

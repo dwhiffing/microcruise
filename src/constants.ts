@@ -42,21 +42,12 @@ export const OFFROAD_ACCEL_FACTOR = 0.25
 export const OFFROAD_SHAKE = 0.3
 // no shake below this speed; full shake at twice it
 export const OFFROAD_SHAKE_MIN_SPEED = 5
-// below this speed the car sprite's frame stops changing
-export const MIN_LEAN_SPEED = 50
 
 export const STEER_SPEED = 4
-// seconds a direction must be held continuously to reach full lock; the
-// remaining travel beyond MICRO_STEER eases in on a squared curve
-export const STEER_RAMP = 1.5
-// wheel magnitude available the instant a direction is pressed (0..1),
-// giving quick taps an immediate, responsive nudge before the hold ramp
-export const MICRO_STEER = 0.35
+// how fast the wheel turns toward a held direction (full lock in 1/rate s)
+export const STEER_RATE = 2
 // how fast the wheel recenters when released
 export const STEER_RETURN = 5.0
-// how fast the wheel passes back through center when reversing direction
-// (slower than a plain release, so left/right switches take longer)
-export const STEER_REVERSE_RETURN = 2.5
 export const CENTRIFUGAL = 3.0
 // speed lost per second per unit of gradient when climbing
 export const SLOPE_DRAG = 120
@@ -90,6 +81,5 @@ export const COLORS = {
   roadAlt: hex('#919ba3'),
   edge: hex('#797c86'),
   edgeAlt: hex('#54565d'),
-  edgeAltDark: hex('#54565d'),
   marking: hex('#C2C3C7'),
 }

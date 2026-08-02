@@ -9,17 +9,11 @@ export class Car {
     this.sprite = scene.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT - 10, 'car', 0).setDepth(1)
   }
 
-  // steerValue: wheel position -1..1, used only for facing direction.
-  // holdTime: seconds the current direction has been held — frame is gated
-  // on this directly so brief taps (micro-adjustments) stay on frames 0/1
-  // no matter how strong the visual lean would otherwise suggest.
-  draw(steerValue: number, holdTime: number) {
+  // steerValue: wheel position -1..1; lean frame follows how far the wheel
+  // is turned
+  draw(steerValue: number) {
     const mag = Math.abs(steerValue)
-    let target: number
-    if (mag < 0.1) target = 0
-    else if (holdTime < 0.4) target = 1
-    else if (holdTime < 0.9) target = 2
-    else target = holdTime < 1.4 ? 3 : 4
+    const target = mag < 0.1 ? 0 : mag < 0.35 ? 1 : mag < 0.6 ? 2 : mag < 0.85 ? 3 : 4
 
     // step at most one frame per call, so the animation always passes
     // through every intermediate lean instead of popping

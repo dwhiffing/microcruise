@@ -1,15 +1,12 @@
 import { GameObjects, Scene } from 'phaser'
 
 export class UI {
-  public sceneRef: Scene
   public titleText!: GameObjects.BitmapText
   public scoreText!: GameObjects.BitmapText
   public title!: GameObjects.Image
   public titleTextTween?: Phaser.Tweens.Tween
 
   constructor(scene: Scene) {
-    this.sceneRef = scene
-
     this.title = scene.add.image(32, 28, 'title').setDepth(10)
 
     this.titleText = scene.add

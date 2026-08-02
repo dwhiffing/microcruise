@@ -21,7 +21,14 @@ import {
 } from '../constants'
 import { Car } from '../entities/Car'
 import { Road } from '../entities/Road'
+import { RoadObject } from '../entities/RoadObject'
 import { UI } from '../entities/UI'
+
+// turn-warning chevrons: how many repeats lead into a big turn, how far
+// apart they're spaced, and how far before the bend the first one sits
+const TURN_SIGN_REPEATS = 12
+const TURN_SIGN_GAP = 80
+const TURN_SIGN_LEAD = 2000
 
 export class Game extends Scene {
   public ui!: UI
@@ -30,6 +37,7 @@ export class Game extends Scene {
   private keyZ!: Phaser.Input.Keyboard.Key
   private road!: Road
   private car!: Car
+  private turnSigns: RoadObject[] = []
   private speed = 0
   private playerX = 0 // -1..1 = on road, beyond that = grass
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
@@ -85,6 +93,8 @@ export class Game extends Scene {
     this.steerValue = 0
     this.distance = 0
     this.road.reset()
+    this.turnSigns.forEach((sign) => sign.destroy())
+    this.turnSigns = []
 
     this.data.set('gameover', 0)
     this.data.set('score', 0)
@@ -152,31 +162,24 @@ export class Game extends Scene {
     // below this speed steering still works, but is capped to a micro
     // adjustment — the hold ramp toward full lock doesn't build up
     const canSteer = this.speed >= MIN_LEAN_SPEED
-    const steerTarget = (this.cursors.left.isDown ? -1 : 0) + (this.cursors.right.isDown ? 1 : 0)
-    const counterSteering = steerTarget !== 0 && steerTarget * this.steerValue < 0
-    if (counterSteering) {
-      // reversing direction always passes back through center first, one
-      // decay step per frame, instead of snapping straight to the new side —
-      // at a slower rate than a plain release, so switches take longer
-      this.steerHoldTime = 0
-      const decay = STEER_REVERSE_RETURN * dt
-      this.steerValue =
-        Math.abs(this.steerValue) <= decay ? 0 : this.steerValue - Math.sign(this.steerValue) * decay
-    } else if (steerTarget !== 0) {
+    const steerTarget =
+      (this.cursors.left.isDown ? -1 : 0) + (this.cursors.right.isDown ? 1 : 0)
+    if (steerTarget !== 0 && steerTarget * this.steerValue >= 0) {
       if (canSteer) this.steerHoldTime += dt
-      const fullLockTime = STEER_RAMP
-      const t = Math.min(1, this.steerHoldTime / fullLockTime)
-      const magnitude = canSteer ? MICRO_STEER + (1 - MICRO_STEER) * t * t : MICRO_STEER
-      this.steerValue = steerTarget * magnitude
-    } else if (this.steerValue !== 0) {
-      const decay = STEER_RETURN * dt
+      const t = Math.min(1, this.steerHoldTime / STEER_RAMP)
+      this.steerValue =
+        steerTarget * (canSteer ? MICRO_STEER + (1 - MICRO_STEER) * t * t : MICRO_STEER)
+    } else {
+      // released — or counter-steering, which decays slower so direction
+      // switches take longer and always pass back through center. Hold
+      // progress is lost either way.
+      const counter = steerTarget !== 0
+      const decay = (counter ? STEER_REVERSE_RETURN : STEER_RETURN) * dt
       this.steerValue =
         Math.abs(this.steerValue) <= decay
           ? 0
           : this.steerValue - Math.sign(this.steerValue) * decay
-      if (this.steerValue === 0) this.steerHoldTime = 0
-    } else {
-      this.steerHoldTime = 0
+      if (counter || this.steerValue === 0) this.steerHoldTime = 0
     }
 
     // steering and centrifugal pull scale with absolute speed against a fixed
@@ -185,9 +188,14 @@ export class Game extends Scene {
     // grass isn't tedious; cap: no hyper-twitch at max), while the pull is
     // uncapped — every curve has a max speed it can be held at.
     const speedFactor = this.speed / REFERENCE_SPEED
-    const steerAuthority = this.speed > 0 ? Phaser.Math.Clamp(speedFactor, 0.35, 1.2) : 0
+    const steerAuthority =
+      this.speed > 0 ? Phaser.Math.Clamp(speedFactor, 0.35, 1.2) : 0
     this.playerX += this.steerValue * STEER_SPEED * steerAuthority * dt
-    this.playerX -= this.road.curveAt(this.distance + PLAYER_Z) * CENTRIFUGAL * speedFactor * dt
+    this.playerX -=
+      this.road.curveAt(this.distance + PLAYER_Z) *
+      CENTRIFUGAL *
+      speedFactor *
+      dt
     this.playerX = Phaser.Math.Clamp(this.playerX, -5, 5)
 
     this.distance += this.speed * dt
@@ -196,6 +204,39 @@ export class Game extends Scene {
     // below this speed steerHoldTime never grows, so draw() naturally stays
     // capped to the micro-adjustment frames
     this.car.draw(this.steerValue, this.steerHoldTime)
+
+    // spawn a repeated run of chevrons on the outside shoulder just before
+    // each big turn the road generator flags; direction picks which way the
+    // chevron points and which shoulder it sits on
+    for (const turn of this.road.drainTurnWarnings()) {
+      const laneOffset = turn.direction > 0 ? -1.15 : 1.15
+      for (let i = 0; i < TURN_SIGN_REPEATS; i++) {
+        this.turnSigns.push(
+          new RoadObject(
+            this,
+            'turn-sign',
+            turn.z - TURN_SIGN_LEAD + i * TURN_SIGN_GAP,
+            laneOffset,
+            {
+              worldWidth: 20,
+              flipX: turn.direction > 0,
+              ignoreOcclusion: true,
+              minScale: 0.01,
+              maxScale: 1,
+              scaleExponent: 0.8,
+            },
+          ),
+        )
+      }
+    }
+    this.turnSigns = this.turnSigns.filter((sign) => {
+      if (sign.z < this.distance) {
+        sign.destroy()
+        return false
+      }
+      sign.update(this.road)
+      return true
+    })
 
     // shake the camera while off-road, scaled by how fast the grass is
     // rumbling underneath — stronger at speed, absent once slowed down

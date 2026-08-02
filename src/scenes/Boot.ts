@@ -18,6 +18,7 @@ export class Boot extends Scene {
     this.load.image('title', 'title.png')
     this.load.spritesheet('car', 'car.png', { frameWidth: 32, frameHeight: 16 })
     this.load.image('sky', 'sky.png')
+    this.load.image('turn-sign', 'turn-sign.png')
 
     this.load.setPath('assets/audio')
     this.load.audio('coin-hit', 'coin-hit.mp3')

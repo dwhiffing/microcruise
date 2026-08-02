@@ -5,18 +5,18 @@ export const GAME_HEIGHT = 64
 export const HORIZON_Y = 26
 
 // world-space track: fixed-length slices projected each frame
-export const SEGMENT_LENGTH = 20
+export const SEGMENT_LENGTH = 15
 export const DRAW_SEGMENTS = 50
 
 // camera sits this far above the road, looking level
-export const CAMERA_HEIGHT = 30
+export const CAMERA_HEIGHT = 25
 // 1 / tan(fov / 2), fov ~= 100 degrees
-export const CAMERA_DEPTH = 0.84
+export const CAMERA_DEPTH = 0.8
 // depth of the player car plane in front of the camera
 export const PLAYER_Z = CAMERA_HEIGHT * CAMERA_DEPTH
 
 // half-width of the road in world units
-export const ROAD_WIDTH = 80
+export const ROAD_WIDTH = 60
 export const LANES = 3
 
 // world-x bend added per segment^2 per unit of curve intensity
@@ -28,10 +28,7 @@ export const RUMBLE_LENGTH = 3
 // sky px scrolled per world unit travelled through a full-intensity curve
 export const SKY_PARALLAX = 0.025
 
-// lens effect: px the road bows against the curve at the bottom of the frame
-export const LENS_BEND = 10
-
-export const MAX_SPEED = 900
+export const MAX_SPEED = 800
 // speed at which steering/centrifugal reach nominal strength; forces keep
 // growing with real speed past it, so faster = harder to hold a curve
 export const REFERENCE_SPEED = 300
@@ -43,6 +40,8 @@ export const OFFROAD_DECEL = 750
 export const OFFROAD_ACCEL_FACTOR = 0.25
 // max camera jitter (px) while off-road at speed
 export const OFFROAD_SHAKE = 0.3
+// no shake below this speed; full shake at twice it
+export const OFFROAD_SHAKE_MIN_SPEED = 5
 // below this speed the car sprite's frame stops changing
 export const MIN_LEAN_SPEED = 50
 
@@ -61,6 +60,25 @@ export const STEER_REVERSE_RETURN = 2.5
 export const CENTRIFUGAL = 3.0
 // speed lost per second per unit of gradient when climbing
 export const SLOPE_DRAG = 120
+
+// turn-warning chevrons: how many repeats lead into a big turn, how far
+// apart they're spaced, and how far before the bend the first one sits
+export const TURN_SIGN_REPEATS = 15
+export const TURN_SIGN_GAP = 100
+export const TURN_SIGN_LEAD = 600
+
+// other cars cruising the road
+export const TRAFFIC_COUNT = 3
+export const TRAFFIC_MIN_SPEED = 250
+export const TRAFFIC_MAX_SPEED = 450
+
+// collision box around a car: length along the track (world units) and
+// half-width across it (road-relative lane units, like playerX)
+export const CAR_COLLIDE_Z = 15
+export const CAR_COLLIDE_LANE = 0.3
+// signs are narrow static posts, so a smaller box
+export const SIGN_COLLIDE_Z = 10
+export const SIGN_COLLIDE_LANE = 0.15
 
 // css hex string -> Phaser color number
 const hex = (c: string) => parseInt(c.slice(1), 16)

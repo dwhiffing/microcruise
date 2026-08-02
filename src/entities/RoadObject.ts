@@ -80,6 +80,11 @@ export class RoadObject {
     this.sprite.setDepth(scale)
   }
 
+  setFrame(frame: number, flipX?: boolean) {
+    this.sprite.setFrame(frame)
+    if (flipX !== undefined) this.sprite.setFlipX(flipX)
+  }
+
   destroy() {
     this.sprite.destroy()
   }

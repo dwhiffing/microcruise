@@ -2,8 +2,11 @@ import { Scene, Types } from 'phaser'
 import {
   ACCEL,
   BRAKE,
+  CAR_COLLIDE_LANE,
+  CAR_COLLIDE_Z,
   CENTRIFUGAL,
   COAST_DECEL,
+  LANES,
   MAX_SPEED,
   MICRO_STEER,
   MIN_LEAN_SPEED,
@@ -11,24 +14,28 @@ import {
   OFFROAD_DECEL,
   OFFROAD_MAX_SPEED,
   OFFROAD_SHAKE,
+  OFFROAD_SHAKE_MIN_SPEED,
   PLAYER_Z,
   REFERENCE_SPEED,
+  SIGN_COLLIDE_LANE,
+  SIGN_COLLIDE_Z,
   SLOPE_DRAG,
   STEER_RAMP,
   STEER_RETURN,
   STEER_REVERSE_RETURN,
   STEER_SPEED,
+  TRAFFIC_COUNT,
+  TRAFFIC_MAX_SPEED,
+  TRAFFIC_MIN_SPEED,
+  TURN_SIGN_GAP,
+  TURN_SIGN_LEAD,
+  TURN_SIGN_REPEATS,
 } from '../constants'
 import { Car } from '../entities/Car'
+import { NpcCar } from '../entities/NpcCar'
 import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
 import { UI } from '../entities/UI'
-
-// turn-warning chevrons: how many repeats lead into a big turn, how far
-// apart they're spaced, and how far before the bend the first one sits
-const TURN_SIGN_REPEATS = 12
-const TURN_SIGN_GAP = 80
-const TURN_SIGN_LEAD = 2000
 
 export class Game extends Scene {
   public ui!: UI
@@ -38,10 +45,12 @@ export class Game extends Scene {
   private road!: Road
   private car!: Car
   private turnSigns: RoadObject[] = []
+  private traffic: NpcCar[] = []
   private speed = 0
   private playerX = 0 // -1..1 = on road, beyond that = grass
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
   private steerHoldTime = 0 // seconds the current direction has been held
+  private bounceVx = 0 // lateral knockback from collisions, decays quickly
   private distance = 0
 
   constructor() {
@@ -54,6 +63,11 @@ export class Game extends Scene {
 
     this.road = new Road(this)
     this.car = new Car(this)
+    this.traffic = Array.from({ length: TRAFFIC_COUNT }, () => {
+      const car = new NpcCar(this, 0, 0, 0)
+      this.respawnCar(car)
+      return car
+    })
     this.ui = new UI(this)
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.keyZ = this.input.keyboard!.addKey('Z')
@@ -85,16 +99,60 @@ export class Game extends Scene {
     this.input.on('pointerdown', this.startGame)
   }
 
+  // drop a traffic car onto a random lane centre, somewhere ahead of the
+  // player, with a fresh cruising speed and rubber-band personality
+  private respawnCar(car: NpcCar) {
+    car.z = this.distance + 800 + Math.random() * 1500
+    car.laneOffset = ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+    car.baseSpeed =
+      TRAFFIC_MIN_SPEED +
+      Math.random() * (TRAFFIC_MAX_SPEED - TRAFFIC_MIN_SPEED)
+    car.rubberBand = 0.6 + Math.random() * 0.3
+  }
+
+  // box-collide the player with something at (z, lane) moving at objSpeed
+  // (0 for static props). Bounce direction comes from the collision normal:
+  // the axis with the shallower overlap. Overlap is resolved immediately
+  // (snap out) plus a decaying lateral impulse.
+  private collide(z: number, lane: number, halfZ: number, halfLane: number, objSpeed: number) {
+    const dz = z - (this.distance + PLAYER_Z)
+    const dLane = this.playerX - lane
+    if (Math.abs(dz) >= halfZ || Math.abs(dLane) >= halfLane) return
+
+    const side = dLane >= 0 ? 1 : -1
+    const zPen = 1 - Math.abs(dz) / halfZ
+    const lanePen = 1 - Math.abs(dLane) / halfLane
+    if (lanePen < zPen) {
+      // side swipe: shove the player out laterally, mild speed scrub
+      this.playerX = lane + side * halfLane
+      this.bounceVx = side * 2
+      this.speed *= 0.9
+    } else if (dz > 0) {
+      // hit it head-on: snap just behind, hard speed loss, deflect toward
+      // whichever side the player was already offset
+      this.distance = z - halfZ - PLAYER_Z
+      this.speed = Math.min(this.speed, objSpeed) * 0.5
+      this.bounceVx = side * 1.2
+    } else {
+      // clipped from behind by something faster: shoved forward
+      this.speed = Math.max(this.speed, objSpeed)
+      this.bounceVx = side * 1.2
+    }
+    this.cameras.main.shake(120, 0.02)
+  }
+
   startGame = () => {
     if (this.data.get('gameover') === 0) return
 
     this.speed = 0
     this.playerX = 0
     this.steerValue = 0
+    this.bounceVx = 0
     this.distance = 0
     this.road.reset()
     this.turnSigns.forEach((sign) => sign.destroy())
     this.turnSigns = []
+    this.traffic.forEach((car) => this.respawnCar(car))
 
     this.data.set('gameover', 0)
     this.data.set('score', 0)
@@ -168,7 +226,8 @@ export class Game extends Scene {
       if (canSteer) this.steerHoldTime += dt
       const t = Math.min(1, this.steerHoldTime / STEER_RAMP)
       this.steerValue =
-        steerTarget * (canSteer ? MICRO_STEER + (1 - MICRO_STEER) * t * t : MICRO_STEER)
+        steerTarget *
+        (canSteer ? MICRO_STEER + (1 - MICRO_STEER) * t * t : MICRO_STEER)
     } else {
       // released — or counter-steering, which decays slower so direction
       // switches take longer and always pass back through center. Hold
@@ -196,6 +255,9 @@ export class Game extends Scene {
       CENTRIFUGAL *
       speedFactor *
       dt
+    // collision knockback: a decaying lateral shove away from the hit
+    this.playerX += this.bounceVx * dt
+    this.bounceVx *= Math.max(0, 1 - 6 * dt)
     this.playerX = Phaser.Math.Clamp(this.playerX, -5, 5)
 
     this.distance += this.speed * dt
@@ -238,10 +300,28 @@ export class Game extends Scene {
       return true
     })
 
-    // shake the camera while off-road, scaled by how fast the grass is
-    // rumbling underneath — stronger at speed, absent once slowed down
-    if (offRoad && this.speed > 0) {
-      const shake = Math.min(1, this.speed / OFFROAD_MAX_SPEED) * OFFROAD_SHAKE
+    // traffic drives itself; recycle a car onto the road ahead once it falls
+    // behind the camera or escapes far beyond the draw distance
+    for (const car of this.traffic) {
+      if (car.z < this.distance - 100 || car.z > this.distance + 4000) {
+        this.respawnCar(car)
+      }
+      car.update(this.road, dt, this.speed)
+    }
+
+    // collisions: cars and roadside signs both bounce the player
+    for (const car of this.traffic) {
+      this.collide(car.z, car.laneOffset, CAR_COLLIDE_Z, CAR_COLLIDE_LANE, car.speed)
+    }
+    for (const sign of this.turnSigns) {
+      this.collide(sign.z, sign.laneOffset, SIGN_COLLIDE_Z, SIGN_COLLIDE_LANE, 0)
+    }
+
+    // shake the camera while off-road, but only when actually moving fast —
+    // ramping in above the threshold, calm once slowed to a crawl
+    if (offRoad && this.speed > OFFROAD_SHAKE_MIN_SPEED) {
+      const shake =
+        Math.min(1, this.speed / OFFROAD_SHAKE_MIN_SPEED - 1) * OFFROAD_SHAKE
       this.cameras.main.setScroll(
         (Math.random() - 0.5) * shake,
         (Math.random() - 0.5) * shake,

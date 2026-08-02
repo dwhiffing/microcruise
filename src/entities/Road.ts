@@ -8,7 +8,6 @@ import {
   GAME_WIDTH,
   HORIZON_Y,
   LANES,
-  LENS_BEND,
   PLAYER_Z,
   ROAD_WIDTH,
   RUMBLE_LENGTH,
@@ -82,7 +81,8 @@ export class Road {
     this.position = 0
     this.pendingTurns = []
     this.sky.tilePositionX = 0
-    for (let n = 0; n < 30; n++) this.pushSegment(0, this.genY, this.genY)
+    // a long, flat opening straightaway before the generator takes over
+    for (let n = 0; n < 75; n++) this.pushSegment(0, this.genY, this.genY)
     this.update(0, 0)
   }
 
@@ -109,13 +109,6 @@ export class Road {
     return (s.y2 - s.y1) / SEGMENT_LENGTH
   }
 
-  // lens bend: near rows bow outward with the current curve — strongest at
-  // the bottom edge, fading toward the horizon — a cheap barrel distortion
-  private lensAt(sy: number) {
-    const t = Math.max(0, (sy - HORIZON_Y) / (GAME_HEIGHT - HORIZON_Y))
-    return this.lensCurve * LENS_BEND * t * t
-  }
-
   // project a world-space point onto the screen, for any road-relative
   // object (props, traffic, ...). z: absolute distance along the track.
   // laneOffset: -1..1 across the road (same convention as playerX).
@@ -130,19 +123,24 @@ export class Road {
   ): { screenX: number; screenY: number; scale: number; visible: boolean } {
     const objZ = z - this.position
     const seg = this.segmentAt(z)
-    if (objZ <= 1 || objZ >= DRAW_SEGMENTS * SEGMENT_LENGTH || seg.frame !== this.frame) {
+    if (
+      objZ <= 1 ||
+      objZ >= DRAW_SEGMENTS * SEGMENT_LENGTH ||
+      seg.frame !== this.frame
+    ) {
       return { screenX: 0, screenY: 0, scale: 0, visible: false }
     }
 
     const next = this.segments[seg.index - this.firstIndex + 1]
     const t = (z - seg.index * SEGMENT_LENGTH) / SEGMENT_LENGTH
-    const bendX = next?.frame === this.frame ? lerp(seg.bendX, next.bendX, t) : seg.bendX
+    const bendX =
+      next?.frame === this.frame ? lerp(seg.bendX, next.bendX, t) : seg.bendX
     const objCx = bendX - this.camX + laneOffset * ROAD_WIDTH
     const objY = lerp(seg.y1, seg.y2, t) + groundHeight
 
     const scale = CAMERA_DEPTH / objZ
     const screenY = HORIZON_Y - scale * (objY - this.camY) * (GAME_HEIGHT / 2)
-    const screenX = GAME_WIDTH / 2 + scale * objCx * (GAME_WIDTH / 2) + this.lensAt(screenY)
+    const screenX = GAME_WIDTH / 2 + scale * objCx * (GAME_WIDTH / 2)
     return { screenX, screenY, scale, visible: screenY < seg.clipY }
   }
 
@@ -150,13 +148,18 @@ export class Road {
     // parallax: following a right-hand curve slides the scenery left,
     // proportional to ground actually covered this frame
     this.sky.tilePositionX +=
-      this.curveAt(position + PLAYER_Z) * (position - this.position) * SKY_PARALLAX
+      this.curveAt(position + PLAYER_Z) *
+      (position - this.position) *
+      SKY_PARALLAX
 
     // generate well beyond the draw distance so upcoming turns get flagged
     // early enough for their warning signs to spawn beyond the horizon
     // instead of popping in near the camera
     const baseIndex = Math.floor(position / SEGMENT_LENGTH)
-    while (this.firstIndex + this.segments.length < baseIndex + DRAW_SEGMENTS + 130) {
+    while (
+      this.firstIndex + this.segments.length <
+      baseIndex + DRAW_SEGMENTS + 130
+    ) {
       this.addSection()
     }
     while (this.segments.length && this.segments[0].index < baseIndex - 2) {
@@ -183,19 +186,21 @@ export class Road {
   // eases smoothly toward a new height. Curved and straight stretches
   // alternate; hills are rolled independently so all combinations occur.
   private addSection() {
+    // curved and straight sections alternate: after a zero-curve section,
+    // this one bends
     let curve = 0
-    const isStraight = this.lastCurve === 0
-    if (isStraight) {
+    const isCurve = this.lastCurve === 0
+    if (isCurve) {
       // curve sharpness: 50% gentle, 25% medium, 25% sharp
       const roll = Math.random()
       const [lo, hi] =
         roll < 0.5 ? [0.1, 0.2] : roll < 0.75 ? [0.2, 0.4] : [0.4, 0.7]
       curve = (Math.random() < 0.5 ? -1 : 1) * (lo + Math.random() * (hi - lo))
-    } else if (Math.abs(this.lastCurve) >= BIG_TURN_THRESHOLD) {
-      // this section is the curve itself (lastCurve was rolled during the
-      // preceding straight); flag it if sharp enough to warrant a sign
-      const z = (this.firstIndex + this.segments.length) * SEGMENT_LENGTH
-      this.pendingTurns.push({ z, direction: this.lastCurve > 0 ? 1 : -1 })
+      if (Math.abs(curve) >= BIG_TURN_THRESHOLD) {
+        // sharp enough for warning signs: flag where the bend begins
+        const z = (this.firstIndex + this.segments.length) * SEGMENT_LENGTH
+        this.pendingTurns.push({ z, direction: curve > 0 ? 1 : -1 })
+      }
     }
     this.lastCurve = curve
 
@@ -204,12 +209,12 @@ export class Road {
         ? (Math.random() < 0.5 ? -1 : 1) * (30 + Math.random() * 50)
         : 0
 
-    // straights run long and plain; curves ease in/out over a longer hold
-    const enter = isStraight ? 0 : 8 + Math.floor(Math.random() * 10)
-    const hold = isStraight
-      ? 30 + Math.floor(Math.random() * 40)
-      : 16 + Math.floor(Math.random() * 18)
-    const leave = isStraight ? 0 : 8 + Math.floor(Math.random() * 10)
+    // straights run long and plain; curves ease in, hold, and ease out
+    const enter = isCurve ? 8 + Math.floor(Math.random() * 10) : 0
+    const hold = isCurve
+      ? 16 + Math.floor(Math.random() * 18)
+      : 30 + Math.floor(Math.random() * 40)
+    const leave = isCurve ? 8 + Math.floor(Math.random() * 10) : 0
     const total = enter + hold + leave
 
     const startY = this.genY
@@ -232,7 +237,14 @@ export class Road {
 
   // filled trapezoid: near edge centred on x1 (half-width w1) at row y1,
   // far edge (x2, w2) at y2
-  private quad(x1: number, w1: number, y1: number, x2: number, w2: number, y2: number) {
+  private quad(
+    x1: number,
+    w1: number,
+    y1: number,
+    x2: number,
+    w2: number,
+    y2: number,
+  ) {
     this.graphics.fillPoints(
       [
         { x: x1 - w1, y: y1 },
@@ -260,7 +272,8 @@ export class Road {
     // cache this frame's camera state for project(); camera height tracks
     // the road under the player car
     const playerSeg = this.segmentAt(position + PLAYER_Z)
-    const playerPercent = ((position + PLAYER_Z) % SEGMENT_LENGTH) / SEGMENT_LENGTH
+    const playerPercent =
+      ((position + PLAYER_Z) % SEGMENT_LENGTH) / SEGMENT_LENGTH
     this.frame++
     this.position = position
     this.camX = playerX * ROAD_WIDTH
@@ -313,8 +326,8 @@ export class Road {
       const scale2 = CAMERA_DEPTH / z2
       const sy1 = HORIZON_Y - scale1 * (y1c - this.camY) * halfH
       const sy2 = HORIZON_Y - scale2 * (seg.y2 - this.camY) * halfH
-      const sx1 = halfW + scale1 * cx1c * halfW + this.lensAt(sy1)
-      const sx2 = halfW + scale2 * cx2 * halfW + this.lensAt(sy2)
+      const sx1 = halfW + scale1 * cx1c * halfW
+      const sx2 = halfW + scale2 * cx2 * halfW
       const sw1 = scale1 * ROAD_WIDTH * halfW
       const sw2 = scale2 * ROAD_WIDTH * halfW
 

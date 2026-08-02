@@ -5,7 +5,8 @@ export class Car {
   private currentFrame = 0
 
   constructor(scene: Phaser.Scene) {
-    this.sprite = scene.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT - 10, 'car', 0)
+    // depth 1 keeps the player above traffic, whose projected depth is < 1
+    this.sprite = scene.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT - 10, 'car', 0).setDepth(1)
   }
 
   // steerValue: wheel position -1..1, used only for facing direction.

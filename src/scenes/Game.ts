@@ -22,6 +22,7 @@ import {
   STEER_RATE,
   STEER_RETURN,
   STEER_SPEED,
+  TOP_SPEED_MPH,
   TRAFFIC_COUNT,
   TRAFFIC_MAX_SPEED,
   TRAFFIC_MIN_SPEED,
@@ -184,7 +185,7 @@ export class Game extends Scene {
 
   gameOver = () => {
     this.paused = true
-    this.ui.hideTimer()
+    this.ui.hideHud()
     this.music.pause()
 
     const score = Math.floor(this.distance / 10)
@@ -220,6 +221,7 @@ export class Game extends Scene {
     this.ui.setTimer(Math.ceil(this.timeLeft))
 
     this.updateSpeed(dt, offRoad)
+    this.ui.setSpeed((this.speed / MAX_SPEED) * TOP_SPEED_MPH)
     this.updateSteering(dt)
     this.updatePlayerX(dt)
     this.distance += this.speed * dt

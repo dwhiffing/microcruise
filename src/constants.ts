@@ -29,10 +29,13 @@ export const RUMBLE_LENGTH = 3
 export const SKY_PARALLAX = 0.025
 
 export const MAX_SPEED = 800
+// what MAX_SPEED reads as on the speedometer: the gauge always spans
+// 0-215 mph no matter the internal top speed
+export const TOP_SPEED_MPH = 215
 // speed at which steering/centrifugal reach nominal strength; forces keep
 // growing with real speed past it, so faster = harder to hold a curve
 export const REFERENCE_SPEED = 300
-export const ACCEL = 160
+export const ACCEL = 70
 export const BRAKE = 800
 export const COAST_DECEL = 40
 export const OFFROAD_MAX_SPEED = 30

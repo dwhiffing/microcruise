@@ -16,6 +16,14 @@ export interface RoadObjectOptions {
   // shrinks with distance, but far-off signage stays legible instead of
   // collapsing sub-pixel. 1 = true perspective (default)
   scaleExponent?: number
+  // pre-drawn size variants, largest first: spritesheet frame + the width
+  // (px) of the art drawn in it. When set, the sprite is never scaled —
+  // the frame whose art width best matches the projected width is shown at
+  // native size, so pixels stay crisp instead of distorting
+  sizeFrames?: { frame: number; width: number }[]
+  // screen-space px added to the projected y, to seat art that would
+  // otherwise look like it floats above the road
+  yOffset?: number
 }
 
 // any sprite fixed to a point in the world (roadside prop, traffic, ...)
@@ -34,6 +42,11 @@ export class RoadObject {
   private minScale: number
   private maxScale: number
   private scaleExponent: number
+  private sizeFrames?: { frame: number; width: number }[]
+  private yOffset: number
+  // index into sizeFrames chosen by the last update(); 0 = the nearest,
+  // full-detail frame (the only one callers may override, e.g. for lean)
+  sizeIndex = -1
 
   constructor(
     scene: Phaser.Scene,
@@ -56,6 +69,8 @@ export class RoadObject {
     this.minScale = minScale
     this.maxScale = maxScale
     this.scaleExponent = scaleExponent
+    this.sizeFrames = opts.sizeFrames
+    this.yOffset = opts.yOffset ?? 0
   }
 
   update(road: Road) {
@@ -67,7 +82,7 @@ export class RoadObject {
     }
 
     this.sprite.setVisible(true)
-    this.sprite.setPosition(screenX, screenY)
+    this.sprite.setPosition(screenX, screenY + this.yOffset)
     let spriteScale = scale * this.pixelsPerWorldUnit
     if (this.scaleExponent !== 1) {
       // compress relative to the cap so the curve passes through maxScale
@@ -75,7 +90,27 @@ export class RoadObject {
       const ref = this.maxScale === Infinity ? 1 : this.maxScale
       spriteScale = ref * Math.pow(spriteScale / ref, this.scaleExponent)
     }
-    this.sprite.setScale(Phaser.Math.Clamp(spriteScale, this.minScale, this.maxScale))
+    spriteScale = Phaser.Math.Clamp(spriteScale, this.minScale, this.maxScale)
+
+    if (this.sizeFrames) {
+      // show the pre-drawn variant closest to the projected art width, at
+      // native scale — no resampling distortion
+      const desired = spriteScale * this.sizeFrames[0].width
+      let best = 0
+      for (let i = 1; i < this.sizeFrames.length; i++) {
+        if (
+          Math.abs(this.sizeFrames[i].width - desired) <
+          Math.abs(this.sizeFrames[best].width - desired)
+        ) {
+          best = i
+        }
+      }
+      this.sizeIndex = best
+      this.sprite.setFrame(this.sizeFrames[best].frame)
+      this.sprite.setScale(1)
+    } else {
+      this.sprite.setScale(spriteScale)
+    }
     // nearer objects (bigger scale) draw over farther ones
     this.sprite.setDepth(scale)
   }

@@ -14,6 +14,7 @@ import {
   OFFROAD_SHAKE,
   OFFROAD_SHAKE_MIN_SPEED,
   PLAYER_Z,
+  RACE_TIME,
   REFERENCE_SPEED,
   SIGN_COLLIDE_LANE,
   SIGN_COLLIDE_Z,
@@ -34,6 +35,13 @@ import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
 import { UI } from '../entities/UI'
 
+// turn-sign.png layout: 8 frames, largest first, each 2px narrower than
+// the last — pre-drawn distance sizes so signs never scale-distort
+const SIGN_SIZE_FRAMES = Array.from({ length: 8 }, (_, i) => ({
+  frame: i,
+  width: 16 - i * 2,
+}))
+
 export class Game extends Scene {
   public ui!: UI
   public music: Phaser.Sound.BaseSound
@@ -48,6 +56,7 @@ export class Game extends Scene {
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
   private bounceVx = 0 // lateral knockback from collisions, decays quickly
   private distance = 0
+  private timeLeft = RACE_TIME
   private paused = true
   private isGameOver = true
   private highScore = 0
@@ -59,6 +68,7 @@ export class Game extends Scene {
   create(): void {
     this.cameras.main.fadeFrom(500, 0, 0, 0)
     this.music = this.sound.add('music', { loop: true, volume: 0.3 })
+    this.music.pause()
 
     this.road = new Road(this)
     this.car = new Car(this)
@@ -110,7 +120,13 @@ export class Game extends Scene {
   // (0 for static props). Bounce direction comes from the collision normal:
   // the axis with the shallower overlap. Overlap is resolved immediately
   // (snap out) plus a decaying lateral impulse.
-  private collide(z: number, lane: number, halfZ: number, halfLane: number, objSpeed: number) {
+  private collide(
+    z: number,
+    lane: number,
+    halfZ: number,
+    halfLane: number,
+    objSpeed: number,
+  ) {
     const dz = z - (this.distance + PLAYER_Z)
     const dLane = this.playerX - lane
     if (Math.abs(dz) >= halfZ || Math.abs(dLane) >= halfLane) return
@@ -145,13 +161,16 @@ export class Game extends Scene {
     this.steerValue = 0
     this.bounceVx = 0
     this.distance = 0
+    this.timeLeft = RACE_TIME
+    this.ui.setTimer(RACE_TIME)
     this.road.reset()
     this.turnSigns.forEach((sign) => sign.destroy())
     this.turnSigns = []
     this.traffic.forEach((car) => this.respawnCar(car))
 
     this.isGameOver = false
-    this.music.play()
+    // TODO: re-enable music
+    // this.music.play()
     this.ui.titleTextTween?.pause()
     this.tweens.add({
       targets: [this.ui.titleText, this.ui.scoreText, this.ui.title],
@@ -165,6 +184,7 @@ export class Game extends Scene {
 
   gameOver = () => {
     this.paused = true
+    this.ui.hideTimer()
     this.music.pause()
 
     const score = Math.floor(this.distance / 10)
@@ -191,6 +211,13 @@ export class Game extends Scene {
 
     const dt = delta / 1000
     const offRoad = Math.abs(this.playerX) > 1
+
+    this.timeLeft -= dt
+    if (this.timeLeft <= 0) {
+      this.gameOver()
+      return
+    }
+    this.ui.setTimer(Math.ceil(this.timeLeft))
 
     this.updateSpeed(dt, offRoad)
     this.updateSteering(dt)
@@ -274,9 +301,9 @@ export class Game extends Scene {
               worldWidth: 20,
               flipX: turn.direction > 0,
               ignoreOcclusion: true,
-              minScale: 0.01,
               maxScale: 1,
               scaleExponent: 0.8,
+              sizeFrames: SIGN_SIZE_FRAMES,
             },
           ),
         )
@@ -306,10 +333,22 @@ export class Game extends Scene {
   // collisions: cars and roadside signs both bounce the player
   private handleCollisions() {
     for (const car of this.traffic) {
-      this.collide(car.z, car.laneOffset, CAR_COLLIDE_Z, CAR_COLLIDE_LANE, car.speed)
+      this.collide(
+        car.z,
+        car.laneOffset,
+        CAR_COLLIDE_Z,
+        CAR_COLLIDE_LANE,
+        car.speed,
+      )
     }
     for (const sign of this.turnSigns) {
-      this.collide(sign.z, sign.laneOffset, SIGN_COLLIDE_Z, SIGN_COLLIDE_LANE, 0)
+      this.collide(
+        sign.z,
+        sign.laneOffset,
+        SIGN_COLLIDE_Z,
+        SIGN_COLLIDE_LANE,
+        0,
+      )
     }
   }
 

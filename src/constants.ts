@@ -58,6 +58,9 @@ export const TURN_SIGN_REPEATS = 15
 export const TURN_SIGN_GAP = 100
 export const TURN_SIGN_LEAD = 600
 
+// seconds on the countdown clock; reaching zero ends the run
+export const RACE_TIME = 60
+
 // other cars cruising the road
 export const TRAFFIC_COUNT = 3
 export const TRAFFIC_MIN_SPEED = 250

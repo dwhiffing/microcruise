@@ -10,10 +10,11 @@ export class Car {
   }
 
   // steerValue: wheel position -1..1; lean frame follows how far the wheel
-  // is turned
+  // is turned (frames 0-5, 5 = full lock)
   draw(steerValue: number) {
     const mag = Math.abs(steerValue)
-    const target = mag < 0.1 ? 0 : mag < 0.35 ? 1 : mag < 0.6 ? 2 : mag < 0.85 ? 3 : 4
+    const target =
+      mag < 0.1 ? 0 : Math.min(5, 1 + Math.floor(((mag - 0.1) / 0.9) * 5))
 
     // step at most one frame per call, so the animation always passes
     // through every intermediate lean instead of popping

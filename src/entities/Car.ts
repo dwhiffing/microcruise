@@ -10,11 +10,25 @@ export class Car {
   }
 
   // steerValue: wheel position -1..1; lean frame follows how far the wheel
-  // is turned (frames 0-5, 5 = full lock)
-  draw(steerValue: number) {
+  // is turned (frames 0-5, 5 = full lock). steerInput: the raw held
+  // direction (-1/0/1) — pressing a key shows the first lean frame
+  // immediately, without waiting for the wheel to ramp up
+  draw(steerValue: number, steerInput: number) {
     const mag = Math.abs(steerValue)
-    const target =
+    let target =
       mag < 0.1 ? 0 : Math.min(5, 1 + Math.floor(((mag - 0.1) / 0.9) * 5))
+    // pressing a direction holds at least the first lean frame — but only
+    // while the wheel isn't still on the opposite side, so a direction
+    // switch rests on the straight frame until the wheel crosses over
+    if (steerInput !== 0 && target === 0 && steerInput * steerValue >= 0) {
+      target = 1
+    }
+
+    // facing can only change while the car is centred, so a switch never
+    // mirrors a lean — it passes through straight, flips, and climbs back
+    if (this.currentFrame === 0) {
+      this.sprite.setFlipX((steerInput || steerValue) < 0)
+    }
 
     // step at most one frame per call, so the animation always passes
     // through every intermediate lean instead of popping
@@ -22,10 +36,6 @@ export class Car {
     else if (target < this.currentFrame) this.currentFrame--
 
     this.sprite.setFrame(this.currentFrame)
-    // only flip facing once fully back at center, so a turn the other way
-    // doesn't mirror mid-lean
-    if (this.currentFrame === 0) this.sprite.setFlipX(false)
-    else if (mag >= 0.15) this.sprite.setFlipX(steerValue < 0)
   }
 
   destroy() {

@@ -46,12 +46,12 @@ export const OFFROAD_SHAKE = 0.3
 // no shake below this speed; full shake at twice it
 export const OFFROAD_SHAKE_MIN_SPEED = 5
 
-export const STEER_SPEED = 4
+export const STEER_SPEED = 6
 // how fast the wheel turns toward a held direction (full lock in 1/rate s)
-export const STEER_RATE = 2
+export const STEER_RATE = 0.4
 // how fast the wheel recenters when released
-export const STEER_RETURN = 5.0
-export const CENTRIFUGAL = 3.0
+export const STEER_RETURN = 1.2
+export const CENTRIFUGAL = 4.0
 // speed lost per second per unit of gradient when climbing
 export const SLOPE_DRAG = 120
 

@@ -53,6 +53,7 @@ export class Game extends Scene {
   public music: Phaser.Sound.BaseSound
   private cursors!: Types.Input.Keyboard.CursorKeys
   private keyZ!: Phaser.Input.Keyboard.Key
+  private keyX!: Phaser.Input.Keyboard.Key
   private road!: Road
   private car!: Car
   private turnSigns: RoadObject[] = []
@@ -62,6 +63,7 @@ export class Game extends Scene {
   private speed = 0
   private playerX = 0 // -1..1 = on road, beyond that = grass
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
+  private steerInput = 0 // raw held direction this frame: -1, 0, or 1
   private bounceVx = 0 // lateral knockback from collisions, decays quickly
   private distance = 0
   private timeLeft = RACE_TIME
@@ -88,6 +90,7 @@ export class Game extends Scene {
     this.ui = new UI(this)
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.keyZ = this.input.keyboard!.addKey('Z')
+    this.keyX = this.input.keyboard!.addKey('X')
 
     this.highScore = Number(localStorage.getItem('highScore') ?? '0')
     if (this.highScore > 0) {
@@ -237,7 +240,7 @@ export class Game extends Scene {
     this.distance += this.speed * dt
 
     this.road.update(this.distance, this.playerX)
-    this.car.draw(this.steerValue)
+    this.car.draw(this.steerValue, this.steerInput)
 
     this.updateTurnSigns()
     this.updateCheckpoints()
@@ -247,9 +250,9 @@ export class Game extends Scene {
   }
 
   private updateSpeed(dt: number, offRoad: boolean) {
-    if (this.cursors.up.isDown || this.keyZ.isDown) {
+    if (this.keyZ.isDown) {
       this.speed += ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
-    } else if (this.cursors.down.isDown) {
+    } else if (this.keyX.isDown) {
       this.speed -= BRAKE * dt
     } else {
       this.speed -= COAST_DECEL * dt
@@ -265,11 +268,11 @@ export class Game extends Scene {
   // wheel moves linearly toward the held direction and recenters faster
   // when released
   private updateSteering(dt: number) {
-    const steerTarget =
+    this.steerInput =
       (this.cursors.left.isDown ? -1 : 0) + (this.cursors.right.isDown ? 1 : 0)
-    const maxStep = (steerTarget !== 0 ? STEER_RATE : STEER_RETURN) * dt
+    const maxStep = (this.steerInput !== 0 ? STEER_RATE : STEER_RETURN) * dt
     this.steerValue += Phaser.Math.Clamp(
-      steerTarget - this.steerValue,
+      this.steerInput - this.steerValue,
       -maxStep,
       maxStep,
     )

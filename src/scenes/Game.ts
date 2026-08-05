@@ -5,9 +5,12 @@ import {
   CAR_COLLIDE_LANE,
   CAR_COLLIDE_Z,
   CENTRIFUGAL,
+  CHECKPOINT_BONUS,
+  CHECKPOINT_INTERVAL,
   COAST_DECEL,
   LANES,
   MAX_SPEED,
+  MAX_TIME,
   OFFROAD_ACCEL_FACTOR,
   OFFROAD_DECEL,
   OFFROAD_MAX_SPEED,
@@ -31,6 +34,7 @@ import {
   TURN_SIGN_REPEATS,
 } from '../constants'
 import { Car } from '../entities/Car'
+import { Checkpoint } from '../entities/Checkpoint'
 import { NpcCar } from '../entities/NpcCar'
 import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
@@ -43,6 +47,7 @@ const SIGN_SIZE_FRAMES = Array.from({ length: 8 }, (_, i) => ({
   width: 16 - i * 2,
 }))
 
+
 export class Game extends Scene {
   public ui!: UI
   public music: Phaser.Sound.BaseSound
@@ -51,6 +56,8 @@ export class Game extends Scene {
   private road!: Road
   private car!: Car
   private turnSigns: RoadObject[] = []
+  private checkpoints: Checkpoint[] = []
+  private nextCheckpointZ = CHECKPOINT_INTERVAL
   private traffic: NpcCar[] = []
   private speed = 0
   private playerX = 0 // -1..1 = on road, beyond that = grass
@@ -167,6 +174,9 @@ export class Game extends Scene {
     this.road.reset()
     this.turnSigns.forEach((sign) => sign.destroy())
     this.turnSigns = []
+    this.checkpoints.forEach((gantry) => gantry.destroy())
+    this.checkpoints = []
+    this.nextCheckpointZ = CHECKPOINT_INTERVAL
     this.traffic.forEach((car) => this.respawnCar(car))
 
     this.isGameOver = false
@@ -230,6 +240,7 @@ export class Game extends Scene {
     this.car.draw(this.steerValue)
 
     this.updateTurnSigns()
+    this.updateCheckpoints()
     this.updateTraffic(dt)
     this.handleCollisions()
     this.updateOffroadShake(offRoad)
@@ -317,6 +328,25 @@ export class Game extends Scene {
         return false
       }
       sign.update(this.road)
+      return true
+    })
+  }
+
+  // checkpoint gantries appear at fixed track intervals; driving under one
+  // adds bonus seconds to the clock
+  private updateCheckpoints() {
+    if (this.nextCheckpointZ - this.distance < 2000) {
+      this.checkpoints.push(new Checkpoint(this, this.nextCheckpointZ))
+      this.nextCheckpointZ += CHECKPOINT_INTERVAL
+    }
+    this.checkpoints = this.checkpoints.filter((gantry) => {
+      if (gantry.z < this.distance) {
+        this.timeLeft = Math.min(MAX_TIME, this.timeLeft + CHECKPOINT_BONUS)
+        this.sound.play('coin-hit', { volume: 0.5 })
+        gantry.destroy()
+        return false
+      }
+      gantry.update(this.road)
       return true
     })
   }

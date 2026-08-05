@@ -27,6 +27,7 @@ export class Boot extends Scene {
       frameWidth: 8,
       frameHeight: 10,
     })
+    this.load.image('flag', 'flag.png')
 
     this.load.setPath('assets/audio')
     this.load.audio('coin-hit', 'coin-hit.mp3')
@@ -34,6 +35,12 @@ export class Boot extends Scene {
   }
 
   create() {
+    // carve the checkpoint gantry pieces out of flag.png's first gantry:
+    // the full-width checker banner band and one post below it
+    const flag = this.textures.get('flag')
+    flag.add('banner', 0, 0, 3, 90, 15)
+    flag.add('post', 0, 0, 18, 9, 46)
+
     this.scene.start('Game')
   }
 }

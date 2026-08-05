@@ -1,6 +1,6 @@
-import { Game as GameScene } from './scenes/Game'
-import { Boot as BootScene } from './scenes/Boot'
 import { Game, Types } from 'phaser'
+import { Boot as BootScene } from './scenes/Boot'
+import { Game as GameScene } from './scenes/Game'
 
 const config: Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -16,4 +16,8 @@ const config: Types.Core.GameConfig = {
   scene: [BootScene, GameScene],
 }
 
-export default new Game(config)
+const game = new Game(config)
+// handy for debugging from the browser console
+;(window as unknown as { game: Game }).game = game
+
+export default game

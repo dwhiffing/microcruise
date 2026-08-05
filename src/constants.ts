@@ -63,6 +63,11 @@ export const TURN_SIGN_LEAD = 600
 
 // seconds on the countdown clock; reaching zero ends the run
 export const RACE_TIME = 60
+// checkpoints: world units between them, seconds they award, and the most
+// the clock can hold (the display only has two digits)
+export const CHECKPOINT_INTERVAL = 6000
+export const CHECKPOINT_BONUS = 15
+export const MAX_TIME = 99
 
 // other cars cruising the road
 export const TRAFFIC_COUNT = 3

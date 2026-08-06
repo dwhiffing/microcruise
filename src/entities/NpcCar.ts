@@ -41,7 +41,7 @@ export class NpcCar {
     this.obj = new RoadObject(scene, 'car2', z, laneOffset, {
       worldWidth: CAR_WORLD_WIDTH,
       maxScale: 1,
-      scaleExponent: 0.6,
+      scaleExponent: 0.8,
       sizeFrames: SIZE_FRAMES,
       yOffset: 1,
     })

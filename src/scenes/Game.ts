@@ -1,6 +1,7 @@
 import { Scene, Types } from 'phaser'
 import {
   ACCEL,
+  AUTO_SHIFT,
   BRAKE,
   CAR_COLLIDE_LANE,
   CAR_COLLIDE_Z,
@@ -12,6 +13,9 @@ import {
   DRIFT_GRIP,
   DRIFT_MIN_SPEED,
   DRIFT_MIN_STEER,
+  ENGINE_BRAKE,
+  GEAR_ACCEL,
+  GEAR_MAX,
   LANES,
   MAX_SPEED,
   MAX_TIME,
@@ -23,6 +27,7 @@ import {
   PLAYER_Z,
   RACE_TIME,
   REFERENCE_SPEED,
+  RPM_CURVE,
   SIGN_COLLIDE_LANE,
   SIGN_COLLIDE_Z,
   SLOPE_DRAG,
@@ -69,6 +74,7 @@ export class Game extends Scene {
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
   private steerInput = 0 // raw held direction this frame: -1, 0, or 1
   private driftDir = 0 // -1/1 while drifting in that direction, 0 otherwise
+  private gear = 1 // current gear, 1-6
   private timeScale = 1 // debug slow-motion factor (keys 1-5)
   private bounceVx = 0 // lateral knockback from collisions, decays quickly
   private distance = 0
@@ -182,6 +188,7 @@ export class Game extends Scene {
     this.playerX = 0
     this.steerValue = 0
     this.driftDir = 0
+    this.gear = 1
     this.bounceVx = 0
     this.distance = 0
     this.timeLeft = RACE_TIME
@@ -213,7 +220,7 @@ export class Game extends Scene {
     this.ui.hideHud()
     this.music.pause()
 
-    const score = Math.floor(this.distance / 10)
+    const score = Math.floor(this.distance / 100)
     if (score > this.highScore) {
       this.highScore = score
       localStorage.setItem('highScore', String(score))
@@ -247,8 +254,16 @@ export class Game extends Scene {
 
     this.updateSteering(dt)
     this.updateDrift()
+    this.updateGears()
     this.updateSpeed(dt, offRoad)
     this.ui.setSpeed((this.speed / MAX_SPEED) * TOP_SPEED_MPH)
+    // RPM follows an exponential curve of speed against the gear's max:
+    // an upshift drops the revs to mid-band, then they surge to redline
+    this.ui.setGearHud(
+      this.gear,
+      Math.pow(this.speed / (GEAR_MAX[this.gear - 1] * MAX_SPEED), RPM_CURVE),
+      Math.floor(this.distance / 100),
+    )
     this.updatePlayerX(dt)
     this.distance += this.speed * dt
 
@@ -280,12 +295,52 @@ export class Game extends Scene {
     }
   }
 
+  // gears 1-6: automatic (shift up at redline under throttle, down as
+  // speed falls) or instant manual shifts on up/down
+  private updateGears() {
+    if (AUTO_SHIFT) {
+      const gearMax = GEAR_MAX[this.gear - 1] * MAX_SPEED
+      if (
+        this.gear < 6 &&
+        this.speed >= gearMax - 0.5 &&
+        (this.keyZ.isDown || this.driftDir !== 0)
+      ) {
+        this.gear++
+      }
+      // downshift once speed falls a bit below the lower gear's max — the
+      // 0.9 hysteresis keeps it from bouncing between gears
+      while (
+        this.gear > 1 &&
+        this.speed < GEAR_MAX[this.gear - 2] * MAX_SPEED * 0.9
+      ) {
+        this.gear--
+      }
+      return
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
+      this.gear = Math.min(6, this.gear + 1)
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.down)) {
+      this.gear = Math.max(1, this.gear - 1)
+    }
+  }
+
   private updateSpeed(dt: number, offRoad: boolean) {
-    if (this.driftDir !== 0) {
+    // each gear tops out at its own speed, with low gears accelerating
+    // hardest; above the cap (after a downshift) the engine drags speed
+    // back down toward it
+    const gearMax = GEAR_MAX[this.gear - 1] * MAX_SPEED
+    const gearAccel = ACCEL * GEAR_ACCEL[this.gear - 1]
+    if (this.speed > gearMax) {
+      this.speed = Math.max(gearMax, this.speed - ENGINE_BRAKE * dt)
+    } else if (this.driftDir !== 0) {
       // drifting: the boost overrides throttle and brake
       this.speed += DRIFT_ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
+      this.speed = Math.min(this.speed, gearMax)
     } else if (this.keyZ.isDown) {
-      this.speed += ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
+      this.speed += gearAccel * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
+      this.speed = Math.min(this.speed, gearMax)
     } else if (this.keyX.isDown) {
       this.speed -= BRAKE * dt
     } else {

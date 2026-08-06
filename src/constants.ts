@@ -29,6 +29,19 @@ export const RUMBLE_LENGTH = 3
 export const SKY_PARALLAX = 0.025
 
 export const MAX_SPEED = 800
+// gears: each gear's top speed as a fraction of MAX_SPEED, and its
+// acceleration multiplier on ACCEL — low gears pull hard but run out fast
+export const GEAR_MAX = [0.18, 0.34, 0.5, 0.66, 0.83, 1]
+export const GEAR_ACCEL = [1.2, 1.1, 0.9, 0.7, 0.5, 0.3]
+// speed dragged off per second while above the gear's max, so downshifting
+// doubles as a brake (RPM pegs at redline while it drags)
+export const ENGINE_BRAKE = 400
+// RPM bar reads (speed / gear max) ^ this exponent: revs drop to mid-band
+// on an upshift and surge toward redline, like a real tach
+export const RPM_CURVE = 3
+// automatic transmission: shifts up at redline under throttle and back
+// down as speed falls; up/down manual shifting is disabled while on
+export const AUTO_SHIFT = true
 // what MAX_SPEED reads as on the speedometer: the gauge always spans
 // 0-215 mph no matter the internal top speed
 export const TOP_SPEED_MPH = 215
@@ -78,8 +91,8 @@ export const TURN_SIGN_LEAD = 600
 export const RACE_TIME = 60
 // checkpoints: world units between them, seconds they award, and the most
 // the clock can hold (the display only has two digits)
-export const CHECKPOINT_INTERVAL = 6000
-export const CHECKPOINT_BONUS = 15
+export const CHECKPOINT_INTERVAL = 12000
+export const CHECKPOINT_BONUS = 10
 export const MAX_TIME = 99
 
 // other cars cruising the road

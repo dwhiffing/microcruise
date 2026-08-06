@@ -27,6 +27,10 @@ export class Boot extends Scene {
       frameWidth: 8,
       frameHeight: 10,
     })
+    this.load.spritesheet('small-numbers', 'small-numbers.png', {
+      frameWidth: 3,
+      frameHeight: 5,
+    })
     this.load.image('flag', 'flag.png')
 
     this.load.setPath('assets/audio')

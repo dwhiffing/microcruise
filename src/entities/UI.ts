@@ -8,6 +8,13 @@ const SPEEDO_PIXELS = 43 // sum of SPEEDO_BARS
 const SPEEDO_RIGHT = 63 // right edge of the last bar
 const SPEEDO_BOTTOM = 9 // row just below the bars
 
+// top-left cluster: gear digit + score above an RPM bar
+const RPM_BAR_X = 2
+const RPM_BAR_Y = 7
+const RPM_BAR_W = 22
+const RPM_BAR_H = 2
+const HUD_YELLOW = 0xffec27
+
 export class UI {
   public titleText!: GameObjects.BitmapText
   public scoreText!: GameObjects.BitmapText
@@ -16,6 +23,10 @@ export class UI {
   private timerDigits: GameObjects.Sprite[]
   private speedo: GameObjects.Graphics
   private speedoText: GameObjects.BitmapText
+  private gearDigit: GameObjects.Sprite
+  private scoreHud: GameObjects.BitmapText
+  private rpmBg: GameObjects.Rectangle
+  private rpmFill: GameObjects.Rectangle
 
   constructor(scene: Scene) {
     this.title = scene.add.image(32, 28, 'title').setDepth(10)
@@ -54,6 +65,32 @@ export class UI {
         .setVisible(false),
     )
 
+    // gear digit ('small-numbers' spritesheet: frame = digit), with the
+    // live score beside it and the RPM bar underneath
+    this.gearDigit = scene.add
+      .sprite(RPM_BAR_X, 1, 'small-numbers', 1)
+      .setOrigin(0, 0)
+      .setTintFill(HUD_YELLOW)
+      .setDepth(10)
+      .setVisible(false)
+    this.scoreHud = scene.add
+      .bitmapText(RPM_BAR_X + RPM_BAR_W + 1, 1, 'pixel-dan', '')
+      .setTintFill(0xffffff)
+      .setFontSize(5)
+      .setOrigin(1, 0)
+      .setDepth(10)
+      .setVisible(false)
+    this.rpmBg = scene.add
+      .rectangle(RPM_BAR_X, RPM_BAR_Y, RPM_BAR_W, RPM_BAR_H, 0xffffff)
+      .setOrigin(0, 0)
+      .setDepth(10)
+      .setVisible(false)
+    this.rpmFill = scene.add
+      .rectangle(RPM_BAR_X, RPM_BAR_Y, 1, RPM_BAR_H, HUD_YELLOW)
+      .setOrigin(0, 0)
+      .setDepth(10)
+      .setVisible(false)
+
     this.speedo = scene.add.graphics().setDepth(10).setVisible(false)
     this.speedoText = scene.add
       .bitmapText(SPEEDO_RIGHT - 9, SPEEDO_BOTTOM - 8, 'pixel-dan', '')
@@ -80,6 +117,17 @@ export class UI {
     })
   }
 
+  // top-left cluster: current gear (yellow), live score (white, right
+  // aligned to the RPM bar's edge), and the RPM bar filling 0..1
+  setGearHud(gear: number, rpm: number, score: number) {
+    this.gearDigit.setFrame(gear).setVisible(true)
+    this.scoreHud.setText(String(score)).setVisible(true)
+    this.rpmBg.setVisible(true)
+    const fill = Math.round(RPM_BAR_W * Phaser.Math.Clamp(rpm, 0, 1))
+    this.rpmFill.setVisible(fill > 0)
+    if (fill > 0) this.rpmFill.setDisplaySize(fill, RPM_BAR_H)
+  }
+
   // show the remaining seconds centred at the top of the screen
   setTimer(seconds: number) {
     const text = String(seconds)
@@ -88,7 +136,7 @@ export class UI {
       digit.setVisible(used)
       if (used) {
         digit.setFrame(Number(text[i]))
-        digit.x = 32 - text.length * 4 + i * 8 + 4
+        digit.x = 33 - text.length * 4 + i * 8 + 4
       }
     })
   }
@@ -97,5 +145,9 @@ export class UI {
     this.timerDigits.forEach((digit) => digit.setVisible(false))
     this.speedo.setVisible(false)
     this.speedoText.setVisible(false)
+    this.gearDigit.setVisible(false)
+    this.scoreHud.setVisible(false)
+    this.rpmBg.setVisible(false)
+    this.rpmFill.setVisible(false)
   }
 }

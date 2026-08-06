@@ -35,7 +35,7 @@ export const TOP_SPEED_MPH = 215
 // speed at which steering/centrifugal reach nominal strength; forces keep
 // growing with real speed past it, so faster = harder to hold a curve
 export const REFERENCE_SPEED = 300
-export const ACCEL = 70
+export const ACCEL = 60
 export const BRAKE = 800
 export const COAST_DECEL = 40
 export const OFFROAD_MAX_SPEED = 30
@@ -47,13 +47,26 @@ export const OFFROAD_SHAKE = 0.3
 export const OFFROAD_SHAKE_MIN_SPEED = 5
 
 export const STEER_SPEED = 6
-// how fast the wheel turns toward a held direction (full lock in 1/rate s)
-export const STEER_RATE = 0.4
+// fraction of the wheel's remaining travel covered per second while held:
+// taps bite fast, then growth falls off approaching full lock (~63% of
+// the way after 1/rate s, ~95% after 3/rate s)
+export const STEER_RATE = 0.8
 // how fast the wheel recenters when released
 export const STEER_RETURN = 1.2
 export const CENTRIFUGAL = 4.0
 // speed lost per second per unit of gradient when climbing
 export const SLOPE_DRAG = 120
+
+// drifting: tap brake while at least this fast with the wheel turned at
+// least this far to kick into a drift; while it lasts the car gains
+// DRIFT_ACCEL speed per second instead of normal throttle/brake, and the
+// centrifugal pull is scaled by DRIFT_GRIP — the car slides with the
+// curve instead of being flung out, so drifts hold bends that are too
+// fast to steer through normally
+export const DRIFT_MIN_SPEED = 250
+export const DRIFT_MIN_STEER = 0.01
+export const DRIFT_ACCEL = 80
+export const DRIFT_GRIP = 0.5
 
 // turn-warning chevrons: how many repeats lead into a big turn, how far
 // apart they're spaced, and how far before the bend the first one sits

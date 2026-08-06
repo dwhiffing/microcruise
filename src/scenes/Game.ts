@@ -8,6 +8,10 @@ import {
   CHECKPOINT_BONUS,
   CHECKPOINT_INTERVAL,
   COAST_DECEL,
+  DRIFT_ACCEL,
+  DRIFT_GRIP,
+  DRIFT_MIN_SPEED,
+  DRIFT_MIN_STEER,
   LANES,
   MAX_SPEED,
   MAX_TIME,
@@ -64,6 +68,7 @@ export class Game extends Scene {
   private playerX = 0 // -1..1 = on road, beyond that = grass
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
   private steerInput = 0 // raw held direction this frame: -1, 0, or 1
+  private driftDir = 0 // -1/1 while drifting in that direction, 0 otherwise
   private bounceVx = 0 // lateral knockback from collisions, decays quickly
   private distance = 0
   private timeLeft = RACE_TIME
@@ -170,6 +175,7 @@ export class Game extends Scene {
     this.speed = 0
     this.playerX = 0
     this.steerValue = 0
+    this.driftDir = 0
     this.bounceVx = 0
     this.distance = 0
     this.timeLeft = RACE_TIME
@@ -233,14 +239,15 @@ export class Game extends Scene {
     }
     this.ui.setTimer(Math.ceil(this.timeLeft))
 
+    this.updateSteering(dt)
+    this.updateDrift()
     this.updateSpeed(dt, offRoad)
     this.ui.setSpeed((this.speed / MAX_SPEED) * TOP_SPEED_MPH)
-    this.updateSteering(dt)
     this.updatePlayerX(dt)
     this.distance += this.speed * dt
 
     this.road.update(this.distance, this.playerX)
-    this.car.draw(this.steerValue, this.steerInput)
+    this.car.draw(this.steerValue, this.steerInput, this.driftDir)
 
     this.updateTurnSigns()
     this.updateCheckpoints()
@@ -249,8 +256,29 @@ export class Game extends Scene {
     this.updateOffroadShake(offRoad)
   }
 
+  // tap the brake while fast and turned hard to kick into a drift: the car
+  // snaps to full lean and gains speed until the drift direction is
+  // released
+  private updateDrift() {
+    if (this.driftDir !== 0) {
+      if (this.steerInput !== this.driftDir) this.driftDir = 0
+      return
+    }
+    if (
+      Phaser.Input.Keyboard.JustDown(this.keyX) &&
+      this.speed >= DRIFT_MIN_SPEED &&
+      Math.abs(this.steerValue) >= DRIFT_MIN_STEER &&
+      Math.sign(this.steerValue) === this.steerInput
+    ) {
+      this.driftDir = this.steerInput
+    }
+  }
+
   private updateSpeed(dt: number, offRoad: boolean) {
-    if (this.keyZ.isDown) {
+    if (this.driftDir !== 0) {
+      // drifting: the boost overrides throttle and brake
+      this.speed += DRIFT_ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
+    } else if (this.keyZ.isDown) {
       this.speed += ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
     } else if (this.keyX.isDown) {
       this.speed -= BRAKE * dt
@@ -265,32 +293,36 @@ export class Game extends Scene {
     this.speed = Phaser.Math.Clamp(this.speed, 0, MAX_SPEED)
   }
 
-  // wheel moves linearly toward the held direction and recenters faster
-  // when released
+  // while held, the wheel covers a fraction of its REMAINING travel each
+  // second — quick taps bite immediately, and the growth falls off as it
+  // nears full lock. Releasing recenters at a constant rate.
   private updateSteering(dt: number) {
     this.steerInput =
       (this.cursors.left.isDown ? -1 : 0) + (this.cursors.right.isDown ? 1 : 0)
-    const maxStep = (this.steerInput !== 0 ? STEER_RATE : STEER_RETURN) * dt
-    this.steerValue += Phaser.Math.Clamp(
-      this.steerInput - this.steerValue,
-      -maxStep,
-      maxStep,
-    )
+    if (this.steerInput !== 0) {
+      this.steerValue +=
+        (this.steerInput - this.steerValue) * Math.min(1, STEER_RATE * dt)
+    } else {
+      const maxStep = STEER_RETURN * dt
+      this.steerValue += Phaser.Math.Clamp(-this.steerValue, -maxStep, maxStep)
+    }
   }
 
   // steering and centrifugal pull scale with absolute speed against a fixed
   // reference, so curves push equally hard at a given real speed no matter
-  // the top speed. Steering authority is clamped (floor: recovering from
-  // grass isn't tedious; cap: no hyper-twitch at max), while the pull is
-  // uncapped — every curve has a max speed it can be held at.
+  // the top speed. Steering authority is proportional to speed (slow car
+  // turns little, parked car not at all) up to a cap so there's no
+  // hyper-twitch at max, while the pull is uncapped — every curve has a
+  // max speed it can be held at.
   private updatePlayerX(dt: number) {
     const speedFactor = this.speed / REFERENCE_SPEED
-    const steerAuthority =
-      this.speed > 0 ? Phaser.Math.Clamp(speedFactor, 0.35, 1.2) : 0
+    const steerAuthority = Math.min(speedFactor, 1.2)
     this.playerX += this.steerValue * STEER_SPEED * steerAuthority * dt
+    // drifting slides with the curve: only a fraction of the pull applies
     this.playerX -=
       this.road.curveAt(this.distance + PLAYER_Z) *
       CENTRIFUGAL *
+      (this.driftDir !== 0 ? DRIFT_GRIP : 1) *
       speedFactor *
       dt
     // collision knockback: a decaying lateral shove away from the hit

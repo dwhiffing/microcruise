@@ -17,6 +17,7 @@ import {
   GEAR_ACCEL,
   GEAR_MAX,
   LANES,
+  MAX_SCORE,
   MAX_SPEED,
   MAX_TIME,
   OFFROAD_ACCEL_FACTOR,
@@ -85,6 +86,10 @@ export class Game extends Scene {
 
   constructor() {
     super('Game')
+  }
+
+  private get score() {
+    return Math.min(MAX_SCORE, Math.floor(this.distance / 100))
   }
 
   create(): void {
@@ -220,7 +225,7 @@ export class Game extends Scene {
     this.ui.hideHud()
     this.music.pause()
 
-    const score = Math.floor(this.distance / 100)
+    const score = this.score
     if (score > this.highScore) {
       this.highScore = score
       localStorage.setItem('highScore', String(score))
@@ -263,7 +268,7 @@ export class Game extends Scene {
     this.ui.setGearHud(
       this.gear,
       Math.pow(this.speed / (GEAR_MAX[this.gear - 1] * MAX_SPEED), RPM_CURVE),
-      Math.floor(this.distance / 100),
+      this.score,
     )
     this.updatePlayerX(dt)
     this.distance += this.speed * dt

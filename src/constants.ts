@@ -70,8 +70,8 @@ export const DRIFT_GRIP = 0.5
 
 // turn-warning chevrons: how many repeats lead into a big turn, how far
 // apart they're spaced, and how far before the bend the first one sits
-export const TURN_SIGN_REPEATS = 15
-export const TURN_SIGN_GAP = 100
+export const TURN_SIGN_REPEATS = 8
+export const TURN_SIGN_GAP = 150
 export const TURN_SIGN_LEAD = 600
 
 // seconds on the countdown clock; reaching zero ends the run

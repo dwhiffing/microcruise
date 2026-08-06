@@ -44,13 +44,13 @@ import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
 import { UI } from '../entities/UI'
 
-// turn-sign.png layout: 8 frames, largest first, each 2px narrower than
-// the last — pre-drawn distance sizes so signs never scale-distort
-const SIGN_SIZE_FRAMES = Array.from({ length: 8 }, (_, i) => ({
+// turn-sign.png layout: 9 frames, largest first, each 2px narrower than
+// the last down to a final 1px sliver — pre-drawn distance sizes so signs
+// never scale-distort
+const SIGN_SIZE_FRAMES = Array.from({ length: 9 }, (_, i) => ({
   frame: i,
-  width: 16 - i * 2,
+  width: Math.max(1, 16 - i * 2),
 }))
-
 
 export class Game extends Scene {
   public ui!: UI

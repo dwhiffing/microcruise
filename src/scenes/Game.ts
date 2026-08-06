@@ -245,12 +245,13 @@ export class Game extends Scene {
     const dt = (delta / 1000) * this.timeScale
     const offRoad = Math.abs(this.playerX) > 1
 
+    // the clock shows 0 for a full second before the run actually ends
     this.timeLeft -= dt
-    if (this.timeLeft <= 0) {
+    if (this.timeLeft <= -1) {
       this.gameOver()
       return
     }
-    this.ui.setTimer(Math.ceil(this.timeLeft))
+    this.ui.setTimer(Math.max(0, Math.ceil(this.timeLeft)))
 
     this.updateSteering(dt)
     this.updateDrift()

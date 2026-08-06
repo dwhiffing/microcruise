@@ -91,8 +91,8 @@ export const TURN_SIGN_LEAD = 600
 export const RACE_TIME = 60
 // checkpoints: world units between them, seconds they award, and the most
 // the clock can hold (the display only has two digits)
-export const CHECKPOINT_INTERVAL = 12000
-export const CHECKPOINT_BONUS = 10
+export const CHECKPOINT_INTERVAL = 10000
+export const CHECKPOINT_BONUS = 15
 export const MAX_TIME = 99
 
 // other cars cruising the road

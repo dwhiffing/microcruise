@@ -69,6 +69,7 @@ export class Game extends Scene {
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
   private steerInput = 0 // raw held direction this frame: -1, 0, or 1
   private driftDir = 0 // -1/1 while drifting in that direction, 0 otherwise
+  private timeScale = 1 // debug slow-motion factor (keys 1-5)
   private bounceVx = 0 // lateral knockback from collisions, decays quickly
   private distance = 0
   private timeLeft = RACE_TIME
@@ -102,6 +103,11 @@ export class Game extends Scene {
       this.ui.scoreText.setText(`HIGH SCORE\n${this.highScore}`)
       this.ui.title.y = 14
     }
+    ;['ONE', 'TWO', 'THREE'].forEach((key, i) => {
+      this.input.keyboard!.on(`keydown-${key}`, () => {
+        this.timeScale = 1 / 2 ** i
+      })
+    })
 
     this.input.keyboard!.on('keydown-M', () => {
       const newMute = !this.game.sound.mute
@@ -229,7 +235,7 @@ export class Game extends Scene {
   update(_time: number, delta: number): void {
     if (this.paused) return
 
-    const dt = delta / 1000
+    const dt = (delta / 1000) * this.timeScale
     const offRoad = Math.abs(this.playerX) > 1
 
     this.timeLeft -= dt
@@ -350,7 +356,7 @@ export class Game extends Scene {
               flipX: turn.direction > 0,
               ignoreOcclusion: true,
               maxScale: 1,
-              scaleExponent: 0.8,
+              scaleExponent: 0.9,
               sizeFrames: SIGN_SIZE_FRAMES,
             },
           ),

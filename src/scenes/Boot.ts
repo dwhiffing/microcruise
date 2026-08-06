@@ -16,8 +16,15 @@ export class Boot extends Scene {
     this.load.setPath('assets')
     this.load.bitmapFont('pixel-dan', 'pixel-dan.png', 'pixel-dan.xml')
     this.load.image('title', 'title.png')
+    this.load.spritesheet('title-anim', 'title-animation.png', {
+      frameWidth: 64,
+      frameHeight: 32,
+    })
     this.load.spritesheet('car', 'car.png', { frameWidth: 32, frameHeight: 16 })
-    this.load.spritesheet('car2', 'car2.png', { frameWidth: 32, frameHeight: 16 })
+    this.load.spritesheet('car2', 'car2.png', {
+      frameWidth: 32,
+      frameHeight: 16,
+    })
     this.load.image('sky', 'sky.png')
     this.load.spritesheet('turn-sign', 'turn-sign.png', {
       frameWidth: 16,

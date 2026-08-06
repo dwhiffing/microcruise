@@ -112,7 +112,6 @@ export class Game extends Scene {
     this.highScore = Number(localStorage.getItem('highScore') ?? '0')
     if (this.highScore > 0) {
       this.ui.scoreText.setText(`HIGH SCORE\n${this.highScore}`)
-      this.ui.title.y = 14
     }
     ;['ONE', 'TWO', 'THREE'].forEach((key, i) => {
       this.input.keyboard!.on(`keydown-${key}`, () => {
@@ -135,7 +134,6 @@ export class Game extends Scene {
       if (!e.key.includes('Arrow') && e.key.toLowerCase() !== 'z') return
       this.startGame()
     })
-    this.input.on('pointerdown', this.startGame)
   }
 
   // drop a traffic car onto a random lane centre, somewhere ahead of the
@@ -231,7 +229,7 @@ export class Game extends Scene {
       localStorage.setItem('highScore', String(score))
     }
 
-    this.ui.title.y = 14
+    this.ui.playTitleAnimation()
     this.ui.scoreText.setText(`HIGH SCORE\n${this.highScore}`)
     this.tweens.add({
       targets: [this.ui.scoreText, this.ui.title, this.ui.titleText],

@@ -18,7 +18,7 @@ const HUD_YELLOW = 0xffec27
 export class UI {
   public titleText!: GameObjects.BitmapText
   public scoreText!: GameObjects.BitmapText
-  public title!: GameObjects.Image
+  public title!: GameObjects.Sprite
   public titleTextTween?: Phaser.Tweens.Tween
   private timerDigits: GameObjects.Sprite[]
   private speedo: GameObjects.Graphics
@@ -29,10 +29,16 @@ export class UI {
   private rpmFill: GameObjects.Rectangle
 
   constructor(scene: Scene) {
-    this.title = scene.add.image(32, 28, 'title').setDepth(10)
+    scene.anims.create({
+      key: 'title-reveal',
+      frames: scene.anims.generateFrameNumbers('title-anim'),
+      frameRate: 28,
+    })
+    this.title = scene.add.sprite(32, 16, 'title-anim', 0).setDepth(10)
+    this.playTitleAnimation()
 
     this.titleText = scene.add
-      .bitmapText(32, 64, 'pixel-dan', 'PRESS ARROW KEY')
+      .bitmapText(32, 64, 'pixel-dan', 'PRESS Z')
       .setTintFill(0xffffff)
       .setFontSize(5)
       .setOrigin(0.5, 1)
@@ -139,6 +145,10 @@ export class UI {
         digit.x = 33 - text.length * 4 + i * 8 + 4
       }
     })
+  }
+
+  playTitleAnimation() {
+    this.title.play('title-reveal')
   }
 
   hideHud() {

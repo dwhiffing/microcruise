@@ -31,7 +31,9 @@ export class UI {
   constructor(scene: Scene) {
     scene.anims.create({
       key: 'title-reveal',
-      frames: scene.anims.generateFrameNumbers('title-anim'),
+      frames: scene.anims.generateFrameNumbers('title-anim', {
+        end: 78,
+      }),
       frameRate: 28,
     })
     this.title = scene.add.sprite(32, 16, 'title-anim', 0).setDepth(10)

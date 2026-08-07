@@ -1,17 +1,219 @@
-import { GAME_HEIGHT, GAME_WIDTH } from '../constants'
+import { GAME_HEIGHT, GAME_WIDTH, MAX_HEALTH } from '../constants'
 
 // while drifting, the lean advances one frame every this many ticks
 // (~60/s), so the ramp to full lock is visible rather than near-instant
 const DRIFT_LEAN_EVERY = 4
 
+// hit feedback: body-coloured debris shards and yellow sparks
+const DEBRIS_COLOR = 0x6b4fc0
+const SPARK_COLOR = 0xffec27
+
+interface Debris {
+  rect: Phaser.GameObjects.Rectangle
+  vx: number
+  vy: number
+  spin: number
+}
+
+interface Spark {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  life: number
+  maxLife: number
+  trail: { x: number; y: number }[]
+}
+
 export class Car {
+  private scene: Phaser.Scene
   private sprite: Phaser.GameObjects.Sprite
+  private smoke: Phaser.GameObjects.Sprite
+  private fire: Phaser.GameObjects.Sprite
+  private explosion: Phaser.GameObjects.Sprite
+  private sparkGfx: Phaser.GameObjects.Graphics
+  private debris: Debris[] = []
+  private sparks: Spark[] = []
   private currentFrame = 0
+  private facing = 1 // 1 = right-lean art, -1 = left (+6 within the row)
+  private damageOffset = 0 // +12/+24 car-frame rows as health drops
   private driftTick = 0
 
   constructor(scene: Phaser.Scene) {
+    this.scene = scene
     // depth 1 keeps the player above traffic, whose projected depth is < 1
-    this.sprite = scene.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT - 10, 'car', 0).setDepth(1)
+    this.sprite = scene.add
+      .sprite(GAME_WIDTH / 2, GAME_HEIGHT - 10, 'car', 0)
+      .setDepth(1)
+
+    for (const size of ['small', 'med', 'large']) {
+      scene.anims.create({
+        key: `${size}-smoke`,
+        frames: scene.anims.generateFrameNumbers(`${size}-smoke`),
+        frameRate: 10,
+        repeat: -1,
+      })
+      scene.anims.create({
+        key: `${size}-fire`,
+        frames: scene.anims.generateFrameNumbers(`${size}-fire`),
+        frameRate: 12,
+        repeat: -1,
+      })
+    }
+    scene.anims.create({
+      key: 'explode',
+      frames: scene.anims.generateFrameNumbers('explode'),
+      frameRate: 14,
+    })
+
+    // damage effects anchored to the car: flames sit on the body, the
+    // smoke plume rises above it, the explosion covers it
+    const cx = this.sprite.x
+    this.fire = scene.add
+      .sprite(cx + 1, this.sprite.y - 5, 'fire-small', 0)
+      .setOrigin(0.5, 1)
+      .setDepth(0.6)
+      .setVisible(false)
+    this.smoke = scene.add
+      .sprite(cx + 1, this.sprite.y - 1, 'smoke-small', 0)
+      .setOrigin(0.5, 1)
+      .setDepth(0.5)
+      .setVisible(false)
+    this.explosion = scene.add
+      .sprite(cx, this.sprite.y + 8, 'explode', 0)
+      .setOrigin(0.5, 1)
+      .setDepth(2)
+      .setVisible(false)
+
+    this.sparkGfx = scene.add.graphics().setDepth(3)
+    scene.events.on(Phaser.Scenes.Events.UPDATE, this.updateParticles, this)
+  }
+
+  // hit feedback: white flash for a frame, debris shards arcing off both
+  // sides, and a burst of streaking sparks over the car
+  onDamage(count = 1 + Math.floor(Math.random() * 2)) {
+    this.sprite.setTintFill(0xffffff)
+    this.scene.time.delayedCall(40, () => this.sprite.clearTint())
+
+    // 1-2 body-coloured 2x5 shards per side, spinning, launched diagonally
+    // up and out; they vanish once they fall past the car's bottom
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < count; i++) {
+        const rect = this.scene.add
+          .rectangle(
+            this.sprite.x + side * 6,
+            this.sprite.y - 4,
+            2,
+            5,
+            DEBRIS_COLOR,
+          )
+          .setDepth(3)
+        this.debris.push({
+          rect,
+          vx: side * (20 + Math.random() * 30),
+          vy: -(30 + Math.random() * 40),
+          spin: (Math.random() - 0.5) * 20,
+        })
+      }
+    }
+
+    // 5 sparks from random points across the car's top, random headings,
+    // gone in 200-300ms
+    for (let i = 0; i < 5; i++) {
+      const angle = Math.random() * Math.PI * 2
+      const speed = 40 + Math.random() * 50
+      this.sparks.push({
+        x: this.sprite.x - 12 + Math.random() * 24,
+        y: this.sprite.y - 6 + Math.random() * 4,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.2 + Math.random() * 0.1,
+        maxLife: 0.3,
+        trail: [],
+      })
+    }
+  }
+
+  private updateParticles(_time: number, delta: number) {
+    const dt = delta / 1000
+
+    // debris arcs under gravity, spinning; killed below the car sprite
+    const carBottom = this.sprite.y + 8
+    this.debris = this.debris.filter((d) => {
+      d.vy += 150 * dt
+      d.rect.x += d.vx * dt
+      d.rect.y += d.vy * dt
+      d.rect.rotation += d.spin * dt
+      if (d.vy > 0 && d.rect.y > carBottom) {
+        d.rect.destroy()
+        return false
+      }
+      return true
+    })
+
+    // sparks streak along their heading with a short fading trail
+    this.sparkGfx.clear()
+    this.sparks = this.sparks.filter((spark) => {
+      spark.life -= dt
+      if (spark.life <= 0) return false
+      spark.trail.unshift({ x: spark.x, y: spark.y })
+      if (spark.trail.length > 4) spark.trail.pop()
+      spark.x += spark.vx * dt
+      spark.y += spark.vy * dt
+      const alpha = spark.life / spark.maxLife
+      this.sparkGfx.fillStyle(SPARK_COLOR, alpha)
+      this.sparkGfx.fillRect(spark.x, spark.y, 1, 1)
+      spark.trail.forEach((p, i) => {
+        this.sparkGfx.fillStyle(SPARK_COLOR, alpha * (1 - (i + 1) / 5))
+        this.sparkGfx.fillRect(p.x, p.y, 1, 1)
+      })
+      return true
+    })
+  }
+
+  setHealth(health: number) {
+    this.damageOffset = health < 70 ? 24 : health < 95 ? 12 : 0
+    this.applyFrame()
+
+    const smokeSize =
+      health < 30 ? 'large' : health < 40 ? 'med' : health < 50 ? 'small' : null
+    const fireSize =
+      health < 10 ? 'large' : health < 20 ? 'med' : health < 30 ? 'small' : null
+
+    const smoking = health > 0 && smokeSize !== null
+    this.smoke.setVisible(smoking)
+    if (smoking) this.smoke.play(`${smokeSize}-smoke`, true)
+    else this.smoke.stop()
+
+    const burning = health > 0 && fireSize !== null
+    this.fire.setVisible(burning)
+    if (burning) this.fire.play(`${fireSize}-fire`, true)
+    else this.fire.stop()
+  }
+
+  // the car is done: hide it (and its damage effects), play the explosion
+  // once, then hand control back
+  explode(onComplete: () => void) {
+    this.sprite.setVisible(false)
+    this.smoke.setVisible(false).stop()
+    this.fire.setVisible(false).stop()
+    this.explosion.setVisible(true).play('explode')
+    this.explosion.once('animationcomplete', () => {
+      this.explosion.setVisible(false)
+      onComplete()
+    })
+  }
+
+  // fresh run: car back, effects and leftover particles off
+  reset() {
+    this.sprite.setVisible(true)
+    this.sprite.clearTint()
+    this.explosion.setVisible(false)
+    this.setHealth(MAX_HEALTH)
+    this.debris.forEach((d) => d.rect.destroy())
+    this.debris = []
+    this.sparks = []
+    this.sparkGfx.clear()
   }
 
   // steerValue: wheel position -1..1; lean frame follows how far the wheel
@@ -23,12 +225,13 @@ export class Car {
     // drifting ramps through the lean frames to full lock (frame 5) at a
     // visible pace instead of snapping there
     if (driftDir !== 0) {
-      this.sprite.setFlipX(driftDir < 0)
+      this.facing = driftDir
       this.driftTick++
       if (this.currentFrame < 5 && this.driftTick % DRIFT_LEAN_EVERY === 0) {
         this.currentFrame++
       }
-      this.sprite.setFrame(this.currentFrame)
+      this.applyFrame()
+      this.positionEffects()
       return
     }
     this.driftTick = 0
@@ -45,9 +248,9 @@ export class Car {
     }
 
     // facing can only change while the car is centred, so a switch never
-    // mirrors a lean — it passes through straight, flips, and climbs back
+    // mirrors a lean — it passes through straight, turns, and climbs back
     if (this.currentFrame === 0) {
-      this.sprite.setFlipX((steerInput || steerValue) < 0)
+      this.facing = (steerInput || steerValue) < 0 ? -1 : 1
     }
 
     // step at most one frame per call, so the animation always passes
@@ -55,7 +258,23 @@ export class Car {
     if (target > this.currentFrame) this.currentFrame++
     else if (target < this.currentFrame) this.currentFrame--
 
-    this.sprite.setFrame(this.currentFrame)
+    this.applyFrame()
+    this.positionEffects()
+  }
+
+  // the sheet is 12 frames per row: 0-5 lean right, 6-11 the same leans
+  // drawn facing left (no sprite flipping), with damage rows at +12/+24
+  private applyFrame() {
+    const left = this.facing < 0 && this.currentFrame > 0 ? 6 : 0
+    this.sprite.setFrame(this.currentFrame + left + this.damageOffset)
+  }
+
+  // smoke/fire ride the car's rear, which swings 1px per lean frame away
+  // from the direction of the turn
+  private positionEffects() {
+    const rear = (this.facing < 0 ? -1 : 1) * this.currentFrame
+    this.fire.x = this.sprite.x + 1 + rear
+    this.smoke.x = this.sprite.x + rear
   }
 
   destroy() {

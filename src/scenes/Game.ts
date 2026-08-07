@@ -3,12 +3,17 @@ import {
   ACCEL,
   AUTO_SHIFT,
   BRAKE,
+  BURN_DPS,
+  BURN_THRESHOLD,
   CAR_COLLIDE_LANE,
   CAR_COLLIDE_Z,
   CENTRIFUGAL,
   CHECKPOINT_BONUS,
   CHECKPOINT_INTERVAL,
+  CHECKPOINT_REPAIR,
   COAST_DECEL,
+  COLLISION_DAMAGE,
+  DAMAGE_COOLDOWN,
   DRIFT_ACCEL,
   DRIFT_GRIP,
   DRIFT_MIN_SPEED,
@@ -17,6 +22,7 @@ import {
   GEAR_ACCEL,
   GEAR_MAX,
   LANES,
+  MAX_HEALTH,
   MAX_SCORE,
   MAX_SPEED,
   MAX_TIME,
@@ -81,6 +87,8 @@ export class Game extends Scene {
   private bounceVx = 0 // lateral knockback from collisions, decays quickly
   private distance = 0
   private timeLeft = RACE_TIME
+  private health = MAX_HEALTH
+  private damageCooldown = 0 // seconds of post-hit invulnerability left
   private paused = true
   private isGameOver = true
   private highScore = 0
@@ -184,19 +192,53 @@ export class Game extends Scene {
       // side swipe: shove the player out laterally, mild speed scrub
       this.playerX = lane + side * halfLane
       this.bounceVx = side * 2
+      this.takeDamage(this.speed * 0.5)
       this.speed *= 0.9
     } else if (dz > 0) {
       // hit it head-on: snap just behind, hard speed loss, deflect toward
       // whichever side the player was already offset
       this.distance = z - halfZ - PLAYER_Z
+      this.takeDamage(Math.max(0, this.speed - objSpeed) * 2)
       this.speed = Math.min(this.speed, objSpeed) * 0.5
       this.bounceVx = side * 1.2
     } else {
       // clipped from behind by something faster: shoved forward
+      this.takeDamage(Math.max(0, objSpeed - this.speed))
       this.speed = Math.max(this.speed, objSpeed)
       this.bounceVx = side * 1.2
     }
     this.cameras.main.shake(120, 0.02)
+  }
+
+  // impact speed -> health loss: a hit at MAX_SPEED relative speed costs
+  // COLLISION_DAMAGE. At zero health the car explodes and the run ends.
+  private takeDamage(_impactSpeed: number) {
+    const impactSpeed = Math.max(75, _impactSpeed * 0.5)
+    if (
+      this.paused ||
+      this.health <= 0 ||
+      impactSpeed <= 0 ||
+      this.damageCooldown > 0
+    ) {
+      return
+    }
+    this.damageCooldown = DAMAGE_COOLDOWN
+    this.health = Math.max(
+      0,
+      this.health - (impactSpeed / MAX_SPEED) * COLLISION_DAMAGE,
+    )
+    this.car.setHealth(this.health)
+    this.car.onDamage()
+    console.log(
+      `damage taken: ${impactSpeed.toFixed(1)} impact, health now ${this.health.toFixed()}`,
+    )
+    if (this.health <= 0) this.die()
+  }
+
+  // freeze the world while the explosion plays, then show the menu
+  private die() {
+    this.paused = true
+    this.car.explode(this.gameOver)
   }
 
   startGame = () => {
@@ -209,6 +251,9 @@ export class Game extends Scene {
     this.gear = 1
     this.bounceVx = 0
     this.distance = 0
+    this.health = MAX_HEALTH
+    this.damageCooldown = 0
+    this.car.reset()
     this.timeLeft = RACE_TIME
     this.ui.setTimer(RACE_TIME)
     this.road.reset()
@@ -262,6 +307,17 @@ export class Game extends Scene {
 
     const dt = (delta / 1000) * this.timeScale
     const offRoad = Math.abs(this.playerX) > 1
+    this.damageCooldown = Math.max(0, this.damageCooldown - dt)
+
+    // on fire: health bleeds away and the car can burn out completely
+    if (this.health < BURN_THRESHOLD) {
+      this.health = Math.max(0, this.health - BURN_DPS * dt)
+      this.car.setHealth(this.health)
+      if (this.health <= 0) {
+        this.die()
+        return
+      }
+    }
 
     // the clock shows 0 for a full second before the run actually ends
     this.timeLeft -= dt
@@ -457,6 +513,8 @@ export class Game extends Scene {
     this.checkpoints = this.checkpoints.filter((gantry) => {
       if (gantry.z < this.distance) {
         this.timeLeft = Math.min(MAX_TIME, this.timeLeft + CHECKPOINT_BONUS)
+        this.health = Math.min(MAX_HEALTH, this.health + CHECKPOINT_REPAIR)
+        this.car.setHealth(this.health)
         this.sound.play('coin-hit', { volume: 0.5 })
         gantry.destroy()
         return false

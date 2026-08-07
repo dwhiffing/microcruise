@@ -38,6 +38,25 @@ export class Boot extends Scene {
       frameWidth: 3,
       frameHeight: 5,
     })
+    // damage effects: one animation strip per size. Frame sizes are
+    // placeholders — set each to match the exported sheet
+    ;[
+      'small-smoke',
+      'med-smoke',
+      'large-smoke',
+      'small-fire',
+      'med-fire',
+      'large-fire',
+    ].forEach((key) => {
+      this.load.spritesheet(key, `${key}.png`, {
+        frameWidth: 16,
+        frameHeight: 40,
+      })
+    })
+    this.load.spritesheet('explode', 'explode.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    })
     this.load.image('flag', 'flag.png')
 
     this.load.setPath('assets/audio')

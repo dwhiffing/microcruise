@@ -96,11 +96,27 @@ export const MAX_SCORE = 9999
 export const CHECKPOINT_INTERVAL = 10000
 export const CHECKPOINT_BONUS = 15
 export const MAX_TIME = 99
+// health restored when crossing a checkpoint (100 = full repair)
+export const CHECKPOINT_REPAIR = 100
 
 // other cars cruising the road
 export const TRAFFIC_COUNT = 3
 export const TRAFFIC_MIN_SPEED = 250
 export const TRAFFIC_MAX_SPEED = 450
+
+// health: collisions drain it in proportion to impact speed — a hit at
+// MAX_SPEED relative speed costs COLLISION_DAMAGE health (side swipes
+// count half the car's speed as impact). Below 50% the car smokes, below
+// 25% it burns too, and at 0 it explodes and the run ends.
+export const MAX_HEALTH = 100
+export const COLLISION_DAMAGE = 100
+// seconds of invulnerability after a hit, so one crash (which can overlap
+// the collision box for several frames) only costs damage once
+export const DAMAGE_COOLDOWN = 0.5
+// while on fire (health below BURN_THRESHOLD) the car bleeds this much
+// health per second, and can burn out completely
+export const BURN_THRESHOLD = 30
+export const BURN_DPS = 1
 
 // collision box around a car: length along the track (world units) and
 // half-width across it (road-relative lane units, like playerX)

@@ -424,16 +424,42 @@ export class Road {
     this.quad(nearX + nearW - ew1, ew1, nearY, farX + farW - ew2, ew2, farY)
 
     // dashed dividers between the lanes (LANES - 1 lines), drawn on the
-    // plain (non-dithered) bands
+    // plain (non-dithered) bands. Rasterized row by row with coverage
+    // alpha on the fractional edges, so the thin lines blend against the
+    // road instead of popping whole pixel columns as they recede
     if (band === 1 && farW > 4) {
       const mw1 = Math.max(0.7, nearW * 0.05)
       const mw2 = Math.max(0.7, farW * 0.05)
-      g.fillStyle(this.palette.marking)
+      const rowTop = Math.max(0, Math.round(farY))
+      const rowBottom = Math.min(GAME_HEIGHT, Math.round(nearY))
+      const spanH = nearY - farY
       for (let lane = 1; lane < LANES; lane++) {
         const f = (lane / LANES) * 2 - 1 // -0.5, 0, 0.5 for 4 lanes
-        this.quad(nearX + f * nearW, mw1, nearY, farX + f * farW, mw2, farY)
+        for (let py = rowTop; py < rowBottom; py++) {
+          const t = spanH > 0 ? (py + 0.5 - farY) / spanH : 0
+          const cx = lerp(farX + f * farW, nearX + f * nearW, t)
+          const w = lerp(mw2, mw1, t)
+          this.hspanAA(py, cx - w, cx + w, this.palette.marking)
+        }
       }
     }
+  }
+
+  // fill [x0, x1) on row py, with partially covered edge pixels drawn at
+  // matching alpha — 1D antialiasing for lines thinner than ~2px
+  private hspanAA(py: number, x0: number, x1: number, color: number) {
+    const g = this.graphics
+    for (let px = Math.floor(x0); px < Math.ceil(x1); px++) {
+      const cov = Math.min(x1, px + 1) - Math.max(x0, px)
+      // contrast-boosted coverage: fringes under ~30% vanish and over
+      // ~70% go solid, keeping the line crisp with just enough blending
+      // to stop the column-popping
+      const alpha = Math.min(1, Math.max(0, (cov - 0.3) / 0.4))
+      if (alpha <= 0) continue
+      g.fillStyle(color, alpha)
+      g.fillRect(px, py, 1, 1)
+    }
+    g.fillStyle(color, 1)
   }
 
   destroy() {

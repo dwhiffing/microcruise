@@ -115,10 +115,23 @@ export class Game extends Scene {
     if (this.highScore > 0) {
       this.ui.scoreText.setText(`HIGH SCORE\n${this.highScore}`)
     }
-    ;['ONE', 'TWO', 'THREE'].forEach((key, i) => {
-      this.input.keyboard!.on(`keydown-${key}`, () => {
-        this.timeScale = 1 / 2 ** i
-      })
+    ;['W', 'E', 'R', 'T'].forEach((key, i) => {
+      if (i === 0)
+        this.input.keyboard!.on(`keydown-${key}`, () => {
+          this.timeScale = 0.5
+        })
+      if (i === 1)
+        this.input.keyboard!.on(`keydown-${key}`, () => {
+          this.timeScale = 1
+        })
+      if (i === 2)
+        this.input.keyboard!.on(`keydown-${key}`, () => {
+          this.timeScale = 2
+        })
+      if (i === 3)
+        this.input.keyboard!.on(`keydown-${key}`, () => {
+          this.timeScale = 4
+        })
     })
 
     this.input.keyboard!.on('keydown-M', () => {

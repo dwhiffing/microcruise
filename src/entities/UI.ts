@@ -8,6 +8,10 @@ const SPEEDO_PIXELS = 43 // sum of SPEEDO_BARS
 const SPEEDO_RIGHT = 63 // right edge of the last bar
 const SPEEDO_BOTTOM = 9 // row just below the bars
 
+type HudElement = Phaser.GameObjects.GameObject &
+  Phaser.GameObjects.Components.Alpha &
+  Phaser.GameObjects.Components.Visible
+
 // top-left cluster: gear digit + score above an RPM bar
 const RPM_BAR_X = 2
 const RPM_BAR_Y = 7
@@ -16,10 +20,9 @@ const RPM_BAR_H = 2
 const HUD_YELLOW = 0xf0cc69
 
 export class UI {
-  public titleText!: GameObjects.BitmapText
+  public titleText!: GameObjects.Sprite
   public scoreText!: GameObjects.BitmapText
   public title!: GameObjects.Sprite
-  public titleTextTween?: Phaser.Tweens.Tween
   private timerDigits: GameObjects.Sprite[]
   private speedo: GameObjects.Graphics
   private speedoBg: GameObjects.Graphics
@@ -30,6 +33,10 @@ export class UI {
   private rpmFill: GameObjects.Rectangle
   private rpmTween?: Phaser.Tweens.Tween
   private rpmTarget = -1 // px width the fill is currently tweening toward
+  private countdownDigit: GameObjects.Sprite
+  private countdownShadow: GameObjects.Sprite
+  // every HUD element with its designed resting alpha, for the fade-in
+  private hud: { obj: HudElement; alpha: number }[] = []
   private scene: Scene
 
   constructor(scene: Scene) {
@@ -42,23 +49,18 @@ export class UI {
       frameRate: 28,
     })
     this.title = scene.add.sprite(32, 16, 'title-anim', 0).setDepth(10)
-    this.playTitleAnimation()
 
+    // start-prompt button, alternating its frames once per second
+    scene.anims.create({
+      key: 'button-blink',
+      frames: scene.anims.generateFrameNumbers('button'),
+      frameRate: 1,
+      repeat: -1,
+    })
     this.titleText = scene.add
-      .bitmapText(32, 64, 'pixel-dan', 'PRESS Z')
-      .setTintFill(0xffffff)
-      .setFontSize(5)
+      .sprite(32, 61, 'button', 0)
       .setOrigin(0.5, 1)
       .setDepth(10)
-
-    this.titleTextTween = scene.tweens.add({
-      targets: this.titleText,
-      alpha: { from: 1, to: 0.4 },
-      duration: 1200,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    })
 
     this.scoreText = scene.add
       .bitmapText(32, 42, 'pixel-dan', '')
@@ -67,6 +69,7 @@ export class UI {
       .setFontSize(5)
       .setOrigin(0.5, 0.5)
       .setDepth(10)
+    this.playTitleAnimation()
 
     // countdown clock digits ('score' spritesheet: frame = digit), hidden
     // until a run starts
@@ -108,6 +111,20 @@ export class UI {
       .setAlpha(0.8)
       .setVisible(false)
 
+    // 3-2-1 countdown: a big centred score-font digit over a black drop
+    // shadow (same sprite cloned and offset)
+    this.countdownShadow = scene.add
+      .sprite(34, 34, 'score', 3)
+      .setScale(3)
+      .setTintFill(0x000000)
+      .setDepth(10)
+      .setVisible(false)
+    this.countdownDigit = scene.add
+      .sprite(32, 32, 'score', 3)
+      .setScale(3)
+      .setDepth(10)
+      .setVisible(false)
+
     // static fully-lit gauge as a faint backdrop; the live fill draws on
     // top of it
     this.speedoBg = scene.add
@@ -134,6 +151,29 @@ export class UI {
       .setDepth(10)
       .setAlpha(0.6)
       .setVisible(false)
+
+    // remember each element's designed alpha so the HUD fade-in can
+    // restore them individually
+    this.hud = [
+      ...this.timerDigits,
+      this.speedo,
+      this.speedoBg,
+      this.speedoText,
+      this.gearDigit,
+      this.scoreHud,
+      this.rpmBg,
+      this.rpmFill,
+    ].map((obj) => ({ obj: obj as HudElement, alpha: obj.alpha }))
+  }
+
+  // fade the whole HUD in together, each element toward its own resting
+  // alpha — timed to run while the car drives in
+  showHud(duration = 700) {
+    this.hud.forEach(({ obj, alpha }) => {
+      obj.setVisible(true)
+      obj.setAlpha(0)
+      this.scene.tweens.add({ targets: obj, alpha, duration })
+    })
   }
 
   // light one bar pixel per 5 mph of the current speed
@@ -188,8 +228,60 @@ export class UI {
     })
   }
 
+  // big 3-2-1-0 in the centre of the screen, one second per digit; the
+  // run starts (callback) as the 0 lands, and the 0 fades away over it
+  countdown(onComplete: () => void) {
+    let value = 3
+    const show = (digit: number) => {
+      this.countdownDigit.setFrame(digit).setVisible(true).setAlpha(1)
+      this.countdownShadow.setFrame(digit).setVisible(true).setAlpha(1)
+    }
+    show(value)
+    this.scene.time.addEvent({
+      delay: 1000,
+      repeat: 2,
+      callback: () => {
+        value--
+        show(value)
+        if (value === 0) {
+          onComplete()
+          this.scene.tweens.add({
+            targets: [this.countdownDigit, this.countdownShadow],
+            alpha: 0,
+            duration: 600,
+            onComplete: () => {
+              this.countdownDigit.setVisible(false)
+              this.countdownShadow.setVisible(false)
+            },
+          })
+        }
+      },
+    })
+  }
+
+  // a run is starting: stop the title reveal, drop its pending fade-in
+  // callback, and kill any in-flight menu tweens so nothing pops back in
+  // mid-run
+  cancelMenu() {
+    this.title.off('animationcomplete-title-reveal')
+    this.title.stop()
+    this.scene.tweens.killTweensOf([this.title, this.titleText, this.scoreText])
+  }
+
+  // the start button and high score stay hidden until the title reveal
+  // ends, then fade in on their own
   playTitleAnimation() {
+    this.titleText.setAlpha(0)
+    this.scoreText.setAlpha(0)
     this.title.play('title-reveal')
+    this.title.once('animationcomplete-title-reveal', () => {
+      this.titleText.play('button-blink')
+      this.scene.tweens.add({
+        targets: [this.titleText, this.scoreText],
+        alpha: 1,
+        duration: 400,
+      })
+    })
   }
 
   hideHud() {

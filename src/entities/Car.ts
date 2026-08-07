@@ -4,6 +4,11 @@ import { GAME_HEIGHT, GAME_WIDTH, MAX_HEALTH } from '../constants'
 // (~60/s), so the ramp to full lock is visible rather than near-instant
 const DRIFT_LEAN_EVERY = 4
 
+// the car's racing position, and its parking spot below the frame while
+// the menu is up
+const HOME_Y = GAME_HEIGHT - 10
+const OFFSCREEN_Y = GAME_HEIGHT + 20
+
 // hit feedback: body-coloured debris shards and yellow sparks
 const DEBRIS_COLOR = 0x6b4fc0
 const SPARK_COLOR = 0xffec27
@@ -43,7 +48,7 @@ export class Car {
     this.scene = scene
     // depth 1 keeps the player above traffic, whose projected depth is < 1
     this.sprite = scene.add
-      .sprite(GAME_WIDTH / 2, GAME_HEIGHT - 10, 'car', 0)
+      .sprite(GAME_WIDTH / 2, HOME_Y, 'car', 0)
       .setDepth(1)
 
     for (const size of ['small', 'med', 'large']) {
@@ -204,8 +209,49 @@ export class Car {
     })
   }
 
-  // fresh run: car back, effects and leftover particles off
+  // menu state: park the car below the frame
+  park() {
+    this.sprite.y = OFFSCREEN_Y
+  }
+
+  // drive in from below and brake into the starting position: the ease
+  // overshoots past the mark and settles back, reading as a hard stop.
+  // The car swings in at a slight angle (random side) and straightens
+  // through the lean frames as it brakes.
+  enter(onComplete: () => void) {
+    this.currentFrame = 2
+    this.facing = Math.random() < 0.5 ? -1 : 1
+    this.applyFrame()
+    this.scene.tweens.add({
+      targets: this.sprite,
+      y: HOME_Y,
+      duration: 700,
+      ease: 'Back.easeOut',
+      onUpdate: (tween) => {
+        const frame = tween.progress > 0.85 ? 0 : tween.progress > 0.6 ? 1 : 2
+        if (frame !== this.currentFrame) {
+          this.currentFrame = frame
+          this.applyFrame()
+        }
+      },
+      onComplete,
+    })
+  }
+
+  // drive off the bottom of the frame as the menu comes back
+  exit() {
+    this.scene.tweens.add({
+      targets: this.sprite,
+      y: OFFSCREEN_Y,
+      duration: 400,
+      ease: 'Sine.easeIn',
+    })
+  }
+
+  // fresh run: car back, straightened, effects and leftover particles off
   reset() {
+    this.currentFrame = 0
+    this.facing = 1
     this.sprite.setVisible(true)
     this.sprite.clearTint()
     this.explosion.setVisible(false)

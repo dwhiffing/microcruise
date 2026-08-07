@@ -108,6 +108,7 @@ export class Game extends Scene {
 
     this.road = new Road(this)
     this.car = new Car(this)
+    this.car.park()
     this.traffic = Array.from({ length: TRAFFIC_COUNT }, () => {
       const car = new NpcCar(this, 0, 0, 0)
       this.respawnCar(car)
@@ -154,7 +155,8 @@ export class Game extends Scene {
     }
 
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => {
-      if (!e.key.includes('Arrow') && e.key.toLowerCase() !== 'z') return
+      const key = e.key.toLowerCase()
+      if (!e.key.includes('Arrow') && key !== 'z' && key !== 'x') return
       this.startGame()
     })
   }
@@ -267,20 +269,31 @@ export class Game extends Scene {
     this.isGameOver = false
     // TODO: re-enable music
     // this.music.play()
-    this.ui.titleTextTween?.pause()
+    this.ui.cancelMenu()
     this.tweens.add({
       targets: [this.ui.titleText, this.ui.scoreText, this.ui.title],
       alpha: 0,
       duration: 500,
-      onComplete: () => {
+    })
+    // the whole HUD fades in with fresh values while the car drives in
+    this.ui.setSpeed(0)
+    this.ui.setGearHud(1, 0, 0)
+    this.ui.showHud()
+
+    // the car drives in from below the frame and brakes into its starting
+    // spot, then the 3-2-1 countdown runs; the clock and controls only
+    // come alive once it finishes
+    this.car.enter(() => {
+      this.ui.countdown(() => {
         this.paused = false
-      },
+      })
     })
   }
 
   gameOver = () => {
     this.paused = true
     this.ui.hideHud()
+    this.car.exit()
     this.music.pause()
 
     const score = this.score
@@ -291,14 +304,12 @@ export class Game extends Scene {
 
     this.ui.playTitleAnimation()
     this.ui.scoreText.setText(`HIGH SCORE\n${this.highScore}`)
+    // restartable right away — an early press cancels these menu tweens
+    this.isGameOver = true
     this.tweens.add({
-      targets: [this.ui.scoreText, this.ui.title, this.ui.titleText],
+      targets: [this.ui.title],
       alpha: 1,
       duration: 1500,
-      onComplete: () => {
-        this.ui.titleTextTween?.restart()
-        this.isGameOver = true
-      },
     })
   }
 

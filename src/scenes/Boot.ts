@@ -38,6 +38,10 @@ export class Boot extends Scene {
       frameWidth: 3,
       frameHeight: 5,
     })
+    this.load.spritesheet('button', 'button.png', {
+      frameWidth: 11,
+      frameHeight: 11,
+    })
     // damage effects: one animation strip per size. Frame sizes are
     // placeholders — set each to match the exported sheet
     ;[

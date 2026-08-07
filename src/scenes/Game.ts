@@ -64,6 +64,7 @@ export class Game extends Scene {
   private cursors!: Types.Input.Keyboard.CursorKeys
   private keyZ!: Phaser.Input.Keyboard.Key
   private keyX!: Phaser.Input.Keyboard.Key
+  private keyC!: Phaser.Input.Keyboard.Key
   private road!: Road
   private car!: Car
   private turnSigns: RoadObject[] = []
@@ -108,6 +109,7 @@ export class Game extends Scene {
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.keyZ = this.input.keyboard!.addKey('Z')
     this.keyX = this.input.keyboard!.addKey('X')
+    this.keyC = this.input.keyboard!.addKey('C')
 
     this.highScore = Number(localStorage.getItem('highScore') ?? '0')
     if (this.highScore > 0) {
@@ -290,7 +292,7 @@ export class Game extends Scene {
       return
     }
     if (
-      Phaser.Input.Keyboard.JustDown(this.keyX) &&
+      Phaser.Input.Keyboard.JustDown(this.keyC) &&
       this.speed >= DRIFT_MIN_SPEED &&
       Math.abs(this.steerValue) >= DRIFT_MIN_STEER &&
       Math.sign(this.steerValue) === this.steerInput
@@ -307,7 +309,7 @@ export class Game extends Scene {
       if (
         this.gear < 6 &&
         this.speed >= gearMax - 0.5 &&
-        (this.keyZ.isDown || this.driftDir !== 0)
+        (this.keyZ.isDown || this.keyX.isDown || this.driftDir !== 0)
       ) {
         this.gear++
       }
@@ -342,10 +344,10 @@ export class Game extends Scene {
       // drifting: the boost overrides throttle and brake
       this.speed += DRIFT_ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
       this.speed = Math.min(this.speed, gearMax)
-    } else if (this.keyZ.isDown) {
+    } else if (this.keyZ.isDown || this.keyX.isDown) {
       this.speed += gearAccel * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
       this.speed = Math.min(this.speed, gearMax)
-    } else if (this.keyX.isDown) {
+    } else if (this.keyC.isDown) {
       this.speed -= BRAKE * dt
     } else {
       this.speed -= COAST_DECEL * dt

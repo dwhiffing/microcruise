@@ -49,13 +49,13 @@ export const TOP_SPEED_MPH = 215
 // growing with real speed past it, so faster = harder to hold a curve
 export const REFERENCE_SPEED = 300
 export const ACCEL = 60
-export const BRAKE = 800
-export const COAST_DECEL = 40
-export const OFFROAD_MAX_SPEED = 30
-export const OFFROAD_DECEL = 750
-export const OFFROAD_ACCEL_FACTOR = 0.25
+export const BRAKE = 300
+export const COAST_DECEL = 30
+export const OFFROAD_MAX_SPEED = 80
+export const OFFROAD_DECEL = 300
+export const OFFROAD_ACCEL_FACTOR = 0.35
 // max camera jitter (px) while off-road at speed
-export const OFFROAD_SHAKE = 0.3
+export const OFFROAD_SHAKE = 0.2
 // no shake below this speed; full shake at twice it
 export const OFFROAD_SHAKE_MIN_SPEED = 5
 

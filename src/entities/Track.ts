@@ -1,4 +1,9 @@
-import { DRAW_SEGMENTS, GAME_HEIGHT, SEGMENT_LENGTH } from '../constants'
+import {
+  DRAW_SEGMENTS,
+  GAME_HEIGHT,
+  RUMBLE_LENGTH,
+  SEGMENT_LENGTH,
+} from '../constants'
 
 // one fixed-length slice of track. y1/y2 are world elevation at its near/far
 // edge, curve is bend intensity (already eased along its section).
@@ -68,6 +73,33 @@ export class Track {
       this.segments.shift()
       this.firstIndex++
     }
+  }
+
+  // swap everything beyond the draw distance for a straightaway: the
+  // visible road is untouched, any curve eases out right past it, then the
+  // road runs straight and flat. Returns the z where it's fully straight.
+  // update() resumes random generation beyond the straight stretch.
+  straightenFrom(baseIndex: number): number {
+    const keep = baseIndex + DRAW_SEGMENTS + 1 - this.firstIndex
+    if (keep < this.segments.length) this.segments.length = keep
+    const last = this.segments[this.segments.length - 1]
+    const ease = 12
+    const y = last.y2
+    for (let n = 0; n < ease; n++) {
+      this.pushSegment(easeInOut(last.curve, 0, (n + 1) / ease), y, y)
+    }
+    for (let n = 0; n < 75; n++) this.pushSegment(0, y, y)
+    this.genY = y
+    this.lastCurve = 0
+    // drop warnings for turns that were cut away
+    const cutZ = (last.index + 1) * SEGMENT_LENGTH
+    this.pendingTurns = this.pendingTurns.filter((turn) => turn.z < cutZ)
+    // aim the camera at a stripe-band boundary, so the view it parks on
+    // matches a fresh track's opening view exactly
+    const bandPeriod = RUMBLE_LENGTH * 2
+    const straightStart =
+      Math.ceil((last.index + 1 + ease) / bandPeriod) * bandPeriod
+    return straightStart * SEGMENT_LENGTH
   }
 
   // returns and clears any big-turn warnings generated since the last call

@@ -3,6 +3,7 @@ import {
   CAMERA_HEIGHT,
   COLORS,
   CURVE_WORLD,
+  DAY_LENGTH,
   DRAW_SEGMENTS,
   GAME_HEIGHT,
   GAME_WIDTH,
@@ -12,11 +13,24 @@ import {
   ROAD_WIDTH,
   RUMBLE_LENGTH,
   SEGMENT_LENGTH,
+  SKY_BG_FACTOR,
   SKY_PARALLAX,
+  SKY_PHASES,
+  STAR_FADE_EXP,
 } from '../constants'
 import { Track, TurnWarning } from './Track'
 
 const lerp = (a: number, b: number, p: number) => a + (b - a) * p
+
+const lerpColor = (a: number, b: number, p: number) =>
+  (Math.round(lerp((a >> 16) & 0xff, (b >> 16) & 0xff, p)) << 16) |
+  (Math.round(lerp((a >> 8) & 0xff, (b >> 8) & 0xff, p)) << 8) |
+  Math.round(lerp(a & 0xff, b & 0xff, p))
+
+export const multiplyColor = (c: number, m: number) =>
+  (Math.round((((c >> 16) & 0xff) * ((m >> 16) & 0xff)) / 255) << 16) |
+  (Math.round((((c >> 8) & 0xff) * ((m >> 8) & 0xff)) / 255) << 8) |
+  Math.round(((c & 0xff) * (m & 0xff)) / 255)
 
 // one segment's on-screen trapezoid: edge centre x, half-width, and screen
 // row for the near and far edges, plus which rumble band it belongs to
@@ -36,9 +50,23 @@ interface SegQuad {
 // points onto the screen for road-relative objects. Track generation and
 // curve/slope queries live in Track; Road forwards the ones callers need.
 export class Road {
-  private sky: Phaser.GameObjects.TileSprite
+  private scene: Phaser.Scene
+  private stars: Phaser.GameObjects.TileSprite
+  private skyBg: Phaser.GameObjects.TileSprite
+  private skyFg: Phaser.GameObjects.TileSprite
   private graphics: Phaser.GameObjects.Graphics
   private track = new Track()
+  // seconds into the current day/night cycle
+  private dayTime = 0
+  // this frame's day/night multiply for everything that isn't sky; world
+  // sprites (car, traffic, signs, checkpoints) read it after update()
+  worldTint = 0xffffff
+  // fired whenever worldTint changes, so the player car keeps in sync
+  // even while gameplay is paused (e.g. the reset fast-forward)
+  onWorldTint?: (tint: number) => void
+  private dayTween?: Phaser.Tweens.Tween
+  // COLORS with worldTint pre-multiplied in, used for the road/grass fills
+  private palette = { ...COLORS }
   // per-frame camera state, cached by draw() for project()
   private frame = 0
   private position = 0
@@ -46,11 +74,22 @@ export class Road {
   private camY = 0
 
   constructor(scene: Phaser.Scene) {
-    // tile sprite wraps the 128px-wide art, so curves can parallax the sky
-    // sideways indefinitely
-    const skyHeight = scene.textures.get('sky').get(0).height
-    this.sky = scene.add
-      .tileSprite(0, 0, GAME_WIDTH, skyHeight, 'sky')
+    this.scene = scene
+    // tile sprites wrap the 128px-wide art, so curves can parallax the sky
+    // sideways indefinitely; the backdrop drifts slower than the skyline
+    // silhouette in front of it
+    const skyHeight = scene.textures.get('sky-bg').get(0).height
+    // starfield sits behind the gradient and skyline, showing in the sky
+    // revealed above them; it only fades in through the night phase
+    this.stars = scene.add
+      .tileSprite(0, 0, GAME_WIDTH, skyHeight, 'stars')
+      .setOrigin(0, 0)
+      .setAlpha(0)
+    this.skyBg = scene.add
+      .tileSprite(0, 0, GAME_WIDTH, skyHeight, 'sky-bg')
+      .setOrigin(0, 0)
+    this.skyFg = scene.add
+      .tileSprite(0, 0, GAME_WIDTH, skyHeight, 'sky-fg')
       .setOrigin(0, 0)
 
     this.graphics = scene.add.graphics()
@@ -60,7 +99,12 @@ export class Road {
   reset() {
     this.track.reset()
     this.position = 0
-    this.sky.tilePositionX = 0
+    // day time isn't touched here: the post-game-over cruise has already
+    // rolled it to sunrise (and it stays frozen while the menu is parked)
+    this.dayTween?.stop()
+    this.stars.tilePositionX = 0
+    this.skyBg.tilePositionX = 0
+    this.skyFg.tilePositionX = 0
     this.update(0, 0)
   }
 
@@ -74,6 +118,44 @@ export class Road {
 
   drainTurnWarnings(): TurnWarning[] {
     return this.track.drainTurnWarnings()
+  }
+
+  // replace the road beyond the draw distance with a straightaway; returns
+  // the z where it becomes fully straight
+  straightenAhead(): number {
+    return this.track.straightenFrom(Math.floor(this.position / SEGMENT_LENGTH))
+  }
+
+  // roll the clock to sunrise over `duration` ms, whichever direction is
+  // shorter. Runs during the post-game-over cruise, which redraws the
+  // world every frame, so the palette sweep renders as it goes
+  resetDayCycle(duration = 1000) {
+    // scroll each sky layer back to its home alignment over the same
+    // ride — to the nearest tile wrap, so it's a short drift, and the
+    // snap-to-0 in reset() lands on an identical-looking frame
+    for (const layer of [this.skyFg, this.skyBg, this.stars]) {
+      this.scene.tweens.killTweensOf(layer)
+      const wrap = layer.frame.width
+      this.scene.tweens.add({
+        targets: layer,
+        tilePositionX: Math.round(layer.tilePositionX / wrap) * wrap,
+        duration,
+        ease: 'Sine.easeInOut',
+      })
+    }
+
+    this.dayTween?.stop()
+    if (this.dayTime === 0) return
+    this.dayTween = this.scene.tweens.addCounter({
+      from: this.dayTime,
+      to: this.dayTime < DAY_LENGTH / 2 ? 0 : DAY_LENGTH,
+      duration,
+      ease: 'Sine.easeInOut',
+      onUpdate: (tween) => {
+        this.dayTime = (tween.getValue() ?? 0) % DAY_LENGTH
+        this.updateDayCycle()
+      },
+    })
   }
 
   // project a world-space point onto the screen, for any road-relative
@@ -111,16 +193,48 @@ export class Road {
     return { screenX, screenY, scale, visible: screenY < seg.clipY }
   }
 
-  update(position: number, playerX: number) {
+  update(position: number, playerX: number, dt = 0) {
+    this.dayTime = (this.dayTime + dt) % DAY_LENGTH
+    this.updateDayCycle()
+
     // parallax: following a right-hand curve slides the scenery left,
     // proportional to ground actually covered this frame
-    this.sky.tilePositionX +=
+    const skyShift =
       this.track.curveAt(position + PLAYER_Z) *
       (position - this.position) *
       SKY_PARALLAX
+    this.skyFg.tilePositionX += skyShift
+    this.skyBg.tilePositionX += skyShift * SKY_BG_FACTOR
+    this.stars.tilePositionX += skyShift * SKY_BG_FACTOR
 
     this.track.update(Math.floor(position / SEGMENT_LENGTH))
     this.draw(position, playerX)
+  }
+
+  // blend the sky backdrop's tint, its downward slide, and the game
+  // background colour between the current phase and the next; night wraps
+  // back into sunrise
+  private updateDayCycle() {
+    const t = (this.dayTime / DAY_LENGTH) * SKY_PHASES.length
+    const fromIndex = Math.floor(t) % SKY_PHASES.length
+    const toIndex = Math.ceil(t) % SKY_PHASES.length
+    const from = SKY_PHASES[fromIndex]
+    const to = SKY_PHASES[toIndex]
+    const p = t - Math.floor(t)
+
+    // stars fade in on the approach to the night phase (the last entry)
+    // and back out as it hands over to sunrise
+    const night = SKY_PHASES.length - 1
+    const starBlend = fromIndex === night ? 1 - p : toIndex === night ? p : 0
+    this.stars.setAlpha(Math.pow(starBlend, STAR_FADE_EXP))
+    this.skyBg.setTint(lerpColor(from.tint, to.tint, p))
+    this.skyBg.y = lerp(from.drop, to.drop, p)
+    this.scene.cameras.main.setBackgroundColor(lerpColor(from.bg, to.bg, p))
+    this.worldTint = lerpColor(from.world, to.world, p)
+    for (const key of Object.keys(COLORS) as (keyof typeof COLORS)[]) {
+      this.palette[key] = multiplyColor(COLORS[key], this.worldTint)
+    }
+    this.onWorldTint?.(this.worldTint)
   }
 
   // filled trapezoid: near edge centred on x1 (half-width w1) at row y1,
@@ -265,16 +379,16 @@ export class Road {
     const rowBottom = Math.min(GAME_HEIGHT, Math.round(nearY))
     const spanH = nearY - farY
 
-    g.fillStyle(COLORS.grass)
+    g.fillStyle(this.palette.grass)
     g.fillRect(0, farY, GAME_WIDTH, spanH)
-    g.fillStyle(COLORS.grassAlt)
+    g.fillStyle(this.palette.grassAlt)
     for (let py = rowTop; py < rowBottom; py++) {
       if (!band || py < farDitherY) this.dither(py, 0, GAME_WIDTH)
     }
 
-    g.fillStyle(COLORS.road)
+    g.fillStyle(this.palette.road)
     this.quad(nearX, nearW, nearY, farX, farW, farY)
-    g.fillStyle(COLORS.roadAlt)
+    g.fillStyle(this.palette.roadAlt)
     for (let py = rowTop; py < rowBottom; py++) {
       if (band && py >= farDitherY) continue
       // road centre/half-width at this row, along the trapezoid
@@ -291,13 +405,21 @@ export class Road {
   // them (anti-shimmer). Size-based rather than an absolute screen row,
   // so climbs — where the road rises above the flat-ground horizon —
   // still get their lines
-  private drawRoadLines({ nearX, nearW, nearY, farX, farW, farY, band }: SegQuad) {
+  private drawRoadLines({
+    nearX,
+    nearW,
+    nearY,
+    farX,
+    farW,
+    farY,
+    band,
+  }: SegQuad) {
     if (farW <= 3) return
     const g = this.graphics
 
     const ew1 = Math.max(2, nearW * 0.195) / 2
     const ew2 = Math.max(2, farW * 0.195) / 2
-    g.fillStyle(band ? COLORS.edge : COLORS.edgeAlt)
+    g.fillStyle(band ? this.palette.edge : this.palette.edgeAlt)
     this.quad(nearX - nearW + ew1, ew1, nearY, farX - farW + ew2, ew2, farY)
     this.quad(nearX + nearW - ew1, ew1, nearY, farX + farW - ew2, ew2, farY)
 
@@ -306,7 +428,7 @@ export class Road {
     if (band === 1 && farW > 4) {
       const mw1 = Math.max(0.7, nearW * 0.05)
       const mw2 = Math.max(0.7, farW * 0.05)
-      g.fillStyle(COLORS.marking)
+      g.fillStyle(this.palette.marking)
       for (let lane = 1; lane < LANES; lane++) {
         const f = (lane / LANES) * 2 - 1 // -0.5, 0, 0.5 for 4 lanes
         this.quad(nearX + f * nearW, mw1, nearY, farX + f * farW, mw2, farY)
@@ -315,7 +437,9 @@ export class Road {
   }
 
   destroy() {
-    this.sky.destroy()
+    this.stars.destroy()
+    this.skyBg.destroy()
+    this.skyFg.destroy()
     this.graphics.destroy()
   }
 }

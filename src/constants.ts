@@ -27,6 +27,26 @@ export const RUMBLE_LENGTH = 3
 
 // sky px scrolled per world unit travelled through a full-intensity curve
 export const SKY_PARALLAX = 0.025
+// the far backdrop layer scrolls at this fraction of the skyline's rate
+export const SKY_BG_FACTOR = 0.5
+
+// day/night cycle: seconds for one full sunrise→noon→sunset→night loop
+export const DAY_LENGTH = 180
+// one entry per phase, blended smoothly into the next (night wraps back
+// into sunrise): `tint` colours the sky backdrop, `bg` is the colour
+// revealed above it (the game background), `drop` is how far down (px)
+// the backdrop has slid by that phase, and `world` is multiplied over
+// everything that isn't sky — road, grass, cars, signs, checkpoints
+// (0xffffff = daylight, no change)
+// stars fade with the blend into/out of the night phase, raised to this
+// power — higher keeps them hugging the peak of night, 1 = linear
+export const STAR_FADE_EXP = 5
+export const SKY_PHASES = [
+  { tint: 0xffb066, bg: 0x6b5a9e, drop: 8, world: 0xe0ab8d }, // sunrise
+  { tint: 0xffffff, bg: 0x4fa4f7, drop: 24, world: 0xffffff }, // noon
+  { tint: 0xff7a4d, bg: 0x3a2b5f, drop: 8, world: 0xd98f75 }, // sunset
+  { tint: 0x4a5a8e, bg: 0x0b0e2a, drop: 24, world: 0x55628f }, // night
+]
 
 export const MAX_SPEED = 800
 // gears: each gear's top speed as a fraction of MAX_SPEED, and its

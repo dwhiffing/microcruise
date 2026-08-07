@@ -14,6 +14,7 @@ import {
   COAST_DECEL,
   COLLISION_DAMAGE,
   DAMAGE_COOLDOWN,
+  DRAW_SEGMENTS,
   DRIFT_ACCEL,
   DRIFT_GRIP,
   DRIFT_MIN_SPEED,
@@ -35,6 +36,7 @@ import {
   RACE_TIME,
   REFERENCE_SPEED,
   RPM_CURVE,
+  SEGMENT_LENGTH,
   SIGN_COLLIDE_LANE,
   SIGN_COLLIDE_Z,
   SLOPE_DRAG,
@@ -64,6 +66,10 @@ const SIGN_SIZE_FRAMES = Array.from({ length: 9 }, (_, i) => ({
   width: Math.max(1, 16 - i * 2),
 }))
 
+// average pace of the camera's eased cruise to the post-game-over
+// straightaway (a sine ease only peaks at ~1.6x this mid-ride)
+const MENU_DRIVE_SPEED = 400
+
 export class Game extends Scene {
   public ui!: UI
   public music: Phaser.Sound.BaseSound
@@ -91,6 +97,10 @@ export class Game extends Scene {
   private damageCooldown = 0 // seconds of post-hit invulnerability left
   private paused = true
   private isGameOver = true
+  private menuDriving = false // camera cruising to the menu straightaway
+  private menuDriveTarget = 0
+  private menuDriveFrom = 0
+  private menuDriveElapsed = 0
   private highScore = 0
 
   constructor() {
@@ -108,6 +118,7 @@ export class Game extends Scene {
 
     this.road = new Road(this)
     this.car = new Car(this)
+    this.road.onWorldTint = (tint) => this.car.setDayTint(tint)
     this.car.park()
     this.traffic = Array.from({ length: TRAFFIC_COUNT }, () => {
       const car = new NpcCar(this, 0, 0, 0)
@@ -139,8 +150,13 @@ export class Game extends Scene {
         })
       if (i === 3)
         this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 4
+          this.timeScale = 8
         })
+    })
+
+    // debug: take a hit on demand
+    this.input.keyboard!.on('keydown-V', () => {
+      this.takeDamage(this.speed)
     })
 
     this.input.keyboard!.on('keydown-M', () => {
@@ -304,16 +320,67 @@ export class Game extends Scene {
 
     this.ui.playTitleAnimation()
     this.ui.scoreText.setText(`HIGH SCORE\n${this.highScore}`)
-    // restartable right away — an early press cancels these menu tweens
-    this.isGameOver = true
     this.tweens.add({
       targets: [this.ui.title],
       alpha: 1,
       duration: 1500,
     })
+
+    // after a beat, lay a straightaway just past the horizon and cruise
+    // the camera into it; restarting (isGameOver) unlocks when it arrives
+    this.time.delayedCall(1000, () => {
+      this.menuDriveTarget = this.road.straightenAhead()
+      this.menuDriveFrom = this.distance
+      this.menuDriveElapsed = 0
+      // the sunrise roll spans the whole cruise, arriving together
+      this.road.resetDayCycle(
+        ((this.menuDriveTarget - this.distance) / MENU_DRIVE_SPEED) * 1000,
+      )
+      // signs pointing at turns that were just cut away would float over
+      // the straight road as we pass them
+      const cutoff = this.distance + DRAW_SEGMENTS * SEGMENT_LENGTH
+      this.turnSigns = this.turnSigns.filter((sign) => {
+        if (sign.z < cutoff) return true
+        sign.destroy()
+        return false
+      })
+      this.menuDriving = true
+    })
+  }
+
+  // cruise up the road (drifting back to the centre lane) until the
+  // camera sits at the start of the menu straightaway, then allow restarts
+  private updateMenuDrive(dt: number) {
+    // eased like the sunrise roll: pull away gently, cruise, brake into
+    // the parking spot. MENU_DRIVE_SPEED sets the average pace
+    this.menuDriveElapsed += dt
+    const total =
+      (this.menuDriveTarget - this.menuDriveFrom) / MENU_DRIVE_SPEED
+    const p = Math.min(1, this.menuDriveElapsed / total)
+    this.distance =
+      this.menuDriveFrom +
+      (this.menuDriveTarget - this.menuDriveFrom) *
+        Phaser.Math.Easing.Sine.InOut(p)
+    const arrived = p >= 1
+    // ease back to the centre lane, landing on it exactly — the parked
+    // view then matches the first-boot menu (band phase, lane, straight)
+    if (arrived) this.playerX = 0
+    else this.playerX += (0 - this.playerX) * Math.min(1, 2 * dt)
+    this.road.update(this.distance, this.playerX, dt)
+    this.turnSigns.forEach((sign) => sign.update(this.road))
+    this.checkpoints.forEach((gantry) => gantry.update(this.road))
+    this.traffic.forEach((car) => car.update(this.road, dt, MENU_DRIVE_SPEED))
+    if (arrived) {
+      this.menuDriving = false
+      this.isGameOver = true
+    }
   }
 
   update(_time: number, delta: number): void {
+    if (this.menuDriving) {
+      this.updateMenuDrive((delta / 1000) * this.timeScale)
+      return
+    }
     if (this.paused) return
 
     const dt = (delta / 1000) * this.timeScale
@@ -353,7 +420,7 @@ export class Game extends Scene {
     this.updatePlayerX(dt)
     this.distance += this.speed * dt
 
-    this.road.update(this.distance, this.playerX)
+    this.road.update(this.distance, this.playerX, dt)
     this.car.draw(this.steerValue, this.steerInput, this.driftDir)
 
     this.updateTurnSigns()

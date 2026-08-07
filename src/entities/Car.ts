@@ -1,4 +1,5 @@
 import { GAME_HEIGHT, GAME_WIDTH, MAX_HEALTH } from '../constants'
+import { multiplyColor } from './Road'
 
 // while drifting, the lean advances one frame every this many ticks
 // (~60/s), so the ramp to full lock is visible rather than near-instant
@@ -43,6 +44,9 @@ export class Car {
   private facing = 1 // 1 = right-lean art, -1 = left (+6 within the row)
   private damageOffset = 0 // +12/+24 car-frame rows as health drops
   private driftTick = 0
+  // day/night multiply from the sky cycle
+  private dayTint = 0xffffff
+  private flashing = false // damage flash owns the sprite's tint while true
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
@@ -98,7 +102,11 @@ export class Car {
   // sides, and a burst of streaking sparks over the car
   onDamage(count = 1 + Math.floor(Math.random() * 2)) {
     this.sprite.setTintFill(0xffffff)
-    this.scene.time.delayedCall(40, () => this.sprite.clearTint())
+    this.flashing = true
+    this.scene.time.delayedCall(40, () => {
+      this.flashing = false
+      this.sprite.setTint(this.dayTint)
+    })
 
     // 1-2 body-coloured 2x5 shards per side, spinning, launched diagonally
     // up and out; they vanish once they fall past the car's bottom
@@ -110,7 +118,7 @@ export class Car {
             this.sprite.y - 4,
             2,
             5,
-            DEBRIS_COLOR,
+            multiplyColor(DEBRIS_COLOR, this.dayTint),
           )
           .setDepth(3)
         this.debris.push({
@@ -174,6 +182,15 @@ export class Car {
       })
       return true
     })
+  }
+
+  // apply the day/night world multiply to the car and its smoke. Fire,
+  // sparks, the explosion, and the damage flash stay untinted — they're
+  // light sources
+  setDayTint(tint: number) {
+    this.dayTint = tint
+    if (!this.flashing) this.sprite.setTint(tint)
+    this.smoke.setTint(tint)
   }
 
   setHealth(health: number) {
@@ -253,7 +270,8 @@ export class Car {
     this.currentFrame = 0
     this.facing = 1
     this.sprite.setVisible(true)
-    this.sprite.clearTint()
+    this.flashing = false
+    this.sprite.setTint(this.dayTint)
     this.explosion.setVisible(false)
     this.setHealth(MAX_HEALTH)
     this.debris.forEach((d) => d.rect.destroy())

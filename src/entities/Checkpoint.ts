@@ -59,6 +59,10 @@ export class Checkpoint {
     this.shadow.setVisible(visible && left.scale > CAMERA_DEPTH / SHADOW_RANGE)
     if (!visible) return
 
+    this.left.setTint(road.worldTint)
+    this.right.setTint(road.worldTint)
+    this.banner.setTint(road.worldTint)
+
     const s = left.scale * this.postPxPerWorld
     // width stays true to the projected road, but the vertical falloff is
     // compressed (and post width floored to ~1px) so the gantry reads as a

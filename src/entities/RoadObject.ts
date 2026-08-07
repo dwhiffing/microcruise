@@ -82,6 +82,7 @@ export class RoadObject {
     }
 
     this.sprite.setVisible(true)
+    this.sprite.setTint(road.worldTint)
     this.sprite.setPosition(screenX, screenY + this.yOffset)
     let spriteScale = scale * this.pixelsPerWorldUnit
     if (this.scaleExponent !== 1) {

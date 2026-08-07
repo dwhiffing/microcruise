@@ -25,7 +25,9 @@ export class Boot extends Scene {
       frameWidth: 32,
       frameHeight: 16,
     })
-    this.load.image('sky', 'sky.png')
+    this.load.image('sky-bg', 'sky-bg.png')
+    this.load.image('sky-fg', 'sky-fg.png')
+    this.load.image('stars', 'stars.png')
     this.load.spritesheet('turn-sign', 'turn-sign.png', {
       frameWidth: 16,
       frameHeight: 20,

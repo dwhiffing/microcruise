@@ -13,7 +13,7 @@ const RPM_BAR_X = 2
 const RPM_BAR_Y = 7
 const RPM_BAR_W = 22
 const RPM_BAR_H = 2
-const HUD_YELLOW = 0xffec27
+const HUD_YELLOW = 0xf0cc69
 
 export class UI {
   public titleText!: GameObjects.BitmapText
@@ -22,13 +22,18 @@ export class UI {
   public titleTextTween?: Phaser.Tweens.Tween
   private timerDigits: GameObjects.Sprite[]
   private speedo: GameObjects.Graphics
+  private speedoBg: GameObjects.Graphics
   private speedoText: GameObjects.BitmapText
   private gearDigit: GameObjects.Sprite
   private scoreHud: GameObjects.BitmapText
   private rpmBg: GameObjects.Rectangle
   private rpmFill: GameObjects.Rectangle
+  private rpmTween?: Phaser.Tweens.Tween
+  private rpmTarget = -1 // px width the fill is currently tweening toward
+  private scene: Scene
 
   constructor(scene: Scene) {
+    this.scene = scene
     scene.anims.create({
       key: 'title-reveal',
       frames: scene.anims.generateFrameNumbers('title-anim', {
@@ -80,6 +85,7 @@ export class UI {
       .setOrigin(0, 0)
       .setTintFill(HUD_YELLOW)
       .setDepth(10)
+      .setAlpha(0.8)
       .setVisible(false)
     this.scoreHud = scene.add
       .bitmapText(RPM_BAR_X + RPM_BAR_W + 1, 1, 'pixel-dan', '')
@@ -87,25 +93,46 @@ export class UI {
       .setFontSize(5)
       .setOrigin(1, 0)
       .setDepth(10)
+      .setAlpha(0.6)
       .setVisible(false)
     this.rpmBg = scene.add
       .rectangle(RPM_BAR_X, RPM_BAR_Y, RPM_BAR_W, RPM_BAR_H, 0xffffff)
       .setOrigin(0, 0)
       .setDepth(10)
+      .setAlpha(0.2)
       .setVisible(false)
     this.rpmFill = scene.add
       .rectangle(RPM_BAR_X, RPM_BAR_Y, 1, RPM_BAR_H, HUD_YELLOW)
       .setOrigin(0, 0)
       .setDepth(10)
+      .setAlpha(0.8)
       .setVisible(false)
 
-    this.speedo = scene.add.graphics().setDepth(10).setVisible(false)
+    // static fully-lit gauge as a faint backdrop; the live fill draws on
+    // top of it
+    this.speedoBg = scene.add
+      .graphics()
+      .setDepth(10)
+      .setAlpha(0.2)
+      .setVisible(false)
+    this.speedoBg.fillStyle(0xffffff)
+    SPEEDO_BARS.forEach((height, i) => {
+      const x = SPEEDO_RIGHT - (SPEEDO_BARS.length - i) * 2 + 1
+      this.speedoBg.fillRect(x, SPEEDO_BOTTOM - height, 1, height)
+    })
+
+    this.speedo = scene.add
+      .graphics()
+      .setDepth(10)
+      .setAlpha(0.6)
+      .setVisible(false)
     this.speedoText = scene.add
       .bitmapText(SPEEDO_RIGHT - 9, SPEEDO_BOTTOM - 8, 'pixel-dan', '')
       .setTintFill(0xffffff)
       .setFontSize(5)
       .setOrigin(1, 0)
       .setDepth(10)
+      .setAlpha(0.6)
       .setVisible(false)
   }
 
@@ -113,6 +140,7 @@ export class UI {
   setSpeed(mph: number) {
     const filled = Math.min(SPEEDO_PIXELS, Math.floor(mph / MPH_PER_PIXEL))
     this.speedoText.setText(String(Math.round(mph))).setVisible(true)
+    this.speedoBg.setVisible(true)
     this.speedo.clear().setVisible(true)
     let start = 0
     SPEEDO_BARS.forEach((height, i) => {
@@ -131,9 +159,20 @@ export class UI {
     this.gearDigit.setFrame(gear).setVisible(true)
     this.scoreHud.setText(String(score)).setVisible(true)
     this.rpmBg.setVisible(true)
+    this.rpmFill.setVisible(true)
+    // the fill never snaps: it tweens toward the new width with a little
+    // overshoot, re-targeted only when the rounded width actually changes
     const fill = Math.round(RPM_BAR_W * Phaser.Math.Clamp(rpm, 0, 1))
-    this.rpmFill.setVisible(fill > 0)
-    if (fill > 0) this.rpmFill.setDisplaySize(fill, RPM_BAR_H)
+    if (fill !== this.rpmTarget) {
+      this.rpmTarget = fill
+      this.rpmTween?.stop()
+      this.rpmTween = this.scene.tweens.add({
+        targets: this.rpmFill,
+        displayWidth: fill,
+        duration: 200,
+        ease: 'Back.easeOut',
+      })
+    }
   }
 
   // show the remaining seconds centred at the top of the screen
@@ -156,6 +195,7 @@ export class UI {
   hideHud() {
     this.timerDigits.forEach((digit) => digit.setVisible(false))
     this.speedo.setVisible(false)
+    this.speedoBg.setVisible(false)
     this.speedoText.setVisible(false)
     this.gearDigit.setVisible(false)
     this.scoreHud.setVisible(false)

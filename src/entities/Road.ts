@@ -70,6 +70,7 @@ export class Road {
   // per-frame camera state, cached by draw() for project()
   private frame = 0
   private position = 0
+  private lastPlayerX = 0
   private camX = 0
   private camY = 0
 
@@ -154,6 +155,9 @@ export class Road {
       onUpdate: (tween) => {
         this.dayTime = (tween.getValue() ?? 0) % DAY_LENGTH
         this.updateDayCycle()
+        // repaint in place: if the camera has already parked (frozen for
+        // the run intro), nothing else redraws the road's palette sweep
+        this.draw(this.position, this.lastPlayerX)
       },
     })
   }
@@ -208,6 +212,7 @@ export class Road {
     this.stars.tilePositionX += skyShift * SKY_BG_FACTOR
 
     this.track.update(Math.floor(position / SEGMENT_LENGTH))
+    this.lastPlayerX = playerX
     this.draw(position, playerX)
   }
 

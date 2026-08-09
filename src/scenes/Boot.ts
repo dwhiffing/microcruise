@@ -1,4 +1,5 @@
 import { Scene } from 'phaser'
+import { BRAKE_LIGHT_SWAPS } from '../constants'
 
 export class Boot extends Scene {
   constructor() {
@@ -19,6 +20,14 @@ export class Boot extends Scene {
     this.load.spritesheet('title-anim', 'title-animation.png', {
       frameWidth: 64,
       frameHeight: 32,
+    })
+    this.load.spritesheet('smoke', 'smoke.png', {
+      frameWidth: 11,
+      frameHeight: 11,
+    })
+    this.load.spritesheet('dirt', 'dirt.png', {
+      frameWidth: 11,
+      frameHeight: 11,
     })
     this.load.spritesheet('car', 'car.png', { frameWidth: 32, frameHeight: 16 })
     this.load.spritesheet('car2', 'car2.png', {
@@ -76,6 +85,34 @@ export class Boot extends Scene {
     const flag = this.textures.get('flag')
     flag.add('banner', 0, 0, 3, 90, 15)
     flag.add('post', 0, 0, 18, 9, 46)
+
+    // bake a recoloured copy of the car sheet with the taillights lit,
+    // shown while braking (same frame grid as 'car')
+    const carSrc = this.textures.get('car').getSourceImage() as HTMLImageElement
+    const canvas = document.createElement('canvas')
+    canvas.width = carSrc.width
+    canvas.height = carSrc.height
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(carSrc, 0, 0)
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const d = img.data
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] === 0) continue
+      const rgb = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2]
+      for (const [from, to] of BRAKE_LIGHT_SWAPS) {
+        if (rgb === from) {
+          d[i] = (to >> 16) & 0xff
+          d[i + 1] = (to >> 8) & 0xff
+          d[i + 2] = to & 0xff
+        }
+      }
+    }
+    ctx.putImageData(img, 0, 0)
+    this.textures.addSpriteSheet(
+      'car-brake',
+      canvas as unknown as HTMLImageElement,
+      { frameWidth: 32, frameHeight: 16 },
+    )
 
     this.scene.start('Game')
   }

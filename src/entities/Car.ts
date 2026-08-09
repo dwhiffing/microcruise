@@ -14,6 +14,18 @@ const OFFSCREEN_Y = GAME_HEIGHT + 20
 const DEBRIS_COLOR = 0x6b4fc0
 const SPARK_COLOR = 0xffec27
 
+// where tire smoke spawns, relative to the sprite centre, for each lean
+// frame 0-5 (the art faces right; a left-facing car mirrors the x's):
+// left/right are the rear wheels' x offsets, y is shared
+const TIRE_SMOKE_OFFSETS = [
+  { left: -15, right: 15, y: 2 }, // 0 straight
+  { left: -16, right: 14, y: 2 },
+  { left: -17, right: 13, y: 2 },
+  { left: -18, right: 12, y: 2 },
+  { left: -19, right: 11, y: 2 },
+  { left: -20, right: 10, y: 2 }, // 5 full lock
+]
+
 interface Debris {
   rect: Phaser.GameObjects.Rectangle
   vx: number
@@ -47,13 +59,15 @@ export class Car {
   // day/night multiply from the sky cycle
   private dayTint = 0xffffff
   private flashing = false // damage flash owns the sprite's tint while true
+  private lastTireSmoke = 0 // rate limit on burnout puffs (ms timestamp)
+  private shakeAmount = 0 // continuous rattle (px), set every live frame
+  private impactJolt = 0 // decaying rattle kicked off by a collision
+  private braking = false // swaps to the lit-taillight sheet
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
     // depth 1 keeps the player above traffic, whose projected depth is < 1
-    this.sprite = scene.add
-      .sprite(GAME_WIDTH / 2, HOME_Y, 'car', 0)
-      .setDepth(1)
+    this.sprite = scene.add.sprite(GAME_WIDTH / 2, HOME_Y, 'car', 0).setDepth(1)
 
     for (const size of ['small', 'med', 'large']) {
       scene.anims.create({
@@ -72,6 +86,18 @@ export class Car {
     scene.anims.create({
       key: 'explode',
       frames: scene.anims.generateFrameNumbers('explode'),
+      frameRate: 14,
+    })
+    // one tire-smoke / kicked-up-dirt puff, played through once per
+    // particle
+    scene.anims.create({
+      key: 'tire-smoke',
+      frames: scene.anims.generateFrameNumbers('smoke'),
+      frameRate: 14,
+    })
+    scene.anims.create({
+      key: 'tire-dirt',
+      frames: scene.anims.generateFrameNumbers('dirt'),
       frameRate: 14,
     })
 
@@ -147,8 +173,19 @@ export class Car {
     }
   }
 
+  // continuous shake amplitude (burnout, off-road), refreshed every frame
+  setShake(amount: number) {
+    this.shakeAmount = amount
+  }
+
+  // a collision rattles the car hard for a moment
+  jolt(strength = 1.5) {
+    this.impactJolt = strength
+  }
+
   private updateParticles(_time: number, delta: number) {
     const dt = delta / 1000
+    this.impactJolt = Math.max(0, this.impactJolt - 12 * dt)
 
     // debris arcs under gravity, spinning; killed below the car sprite
     const carBottom = this.sprite.y + 8
@@ -182,6 +219,39 @@ export class Car {
       })
       return true
     })
+  }
+
+  // burnout: a puff kicked up behind each rear wheel, drifting out and
+  // back as its animation plays through — tire smoke on tarmac, dirt in
+  // the grass. Call every frame while the tires should be spinning; the
+  // rate limit spaces the puffs out
+  emitTireSmoke(dirt = false) {
+    const now = this.scene.time.now
+    if (now - this.lastTireSmoke < 340) return
+    this.lastTireSmoke = now
+    // wheel anchors follow the current lean frame, mirrored when the art
+    // faces left
+    const { left, right, y } = TIRE_SMOKE_OFFSETS[this.currentFrame]
+    const wheelX = this.facing < 0 ? [-right, -left] : [left, right]
+    for (const side of [-1, 1]) {
+      const puff = this.scene.add
+        .sprite(
+          this.sprite.x + wheelX[side < 0 ? 0 : 1],
+          this.sprite.y + y,
+          dirt ? 'dirt' : 'smoke',
+          0,
+        )
+        .setDepth(1.5) // under the car body, over the damage effects
+        .setTint(this.dayTint)
+      puff.play(dirt ? 'tire-dirt' : 'tire-smoke')
+      this.scene.tweens.add({
+        targets: puff,
+        x: puff.x + side * (3 + Math.random() * 4),
+        y: puff.y + 1 + Math.random() * 1,
+        duration: 300,
+      })
+      puff.once('animationcomplete', () => puff.destroy())
+    }
   }
 
   // apply the day/night world multiply to the car and its smoke. Fire,
@@ -250,13 +320,19 @@ export class Car {
           this.currentFrame = frame
           this.applyFrame()
         }
+        // the tires bite once the braking phase of the entrance begins
+        if (tween.progress > 0.1) this.emitTireSmoke()
       },
       onComplete,
     })
   }
 
-  // drive off the bottom of the frame as the menu comes back
+  // drive off the bottom of the frame as the menu comes back; the damage
+  // smoke/fire only track the car during live frames, so they'd hover in
+  // place — hide them instead
   exit() {
+    this.smoke.setVisible(false).stop()
+    this.fire.setVisible(false).stop()
     this.scene.tweens.add({
       targets: this.sprite,
       y: OFFSCREEN_Y,
@@ -267,6 +343,7 @@ export class Car {
 
   // fresh run: car back, straightened, effects and leftover particles off
   reset() {
+    this.braking = false
     this.currentFrame = 0
     this.facing = 1
     this.sprite.setVisible(true)
@@ -284,8 +361,22 @@ export class Car {
   // is turned (frames 0-5, 5 = full lock). steerInput: the raw held
   // direction (-1/0/1) — pressing a key shows the first lean frame
   // immediately, without waiting for the wheel to ramp up. driftDir:
-  // while drifting the car snaps straight to full lock in that direction
-  draw(steerValue: number, steerInput: number, driftDir: number) {
+  // while drifting the car snaps straight to full lock in that direction.
+  // launching: hard low-speed acceleration — the car sits on frame 1
+  // instead of the neutral frame while pulling away
+  draw(
+    steerValue: number,
+    steerInput: number,
+    driftDir: number,
+    launching = false,
+  ) {
+    // the car rattles in place instead of the camera: burnout/off-road
+    // jitter or a collision jolt, whichever is stronger, around its
+    // fixed racing position
+    const shake = Math.max(this.shakeAmount, this.impactJolt)
+    this.sprite.x = GAME_WIDTH / 2 + (Math.random() - 0.5) * shake
+    this.sprite.y = HOME_Y + (Math.random() - 0.5) * shake
+
     // drifting ramps through the lean frames to full lock (frame 5) at a
     // visible pace instead of snapping there
     if (driftDir !== 0) {
@@ -310,6 +401,8 @@ export class Car {
     if (steerInput !== 0 && target === 0 && steerInput * steerValue >= 0) {
       target = 1
     }
+    // launching off the line never rests on the flat neutral frame
+    if (launching && target === 0) target = 1
 
     // facing can only change while the car is centred, so a switch never
     // mirrors a lean — it passes through straight, turns, and climbs back
@@ -330,7 +423,17 @@ export class Car {
   // drawn facing left (no sprite flipping), with damage rows at +12/+24
   private applyFrame() {
     const left = this.facing < 0 && this.currentFrame > 0 ? 6 : 0
-    this.sprite.setFrame(this.currentFrame + left + this.damageOffset)
+    this.sprite.setTexture(
+      this.braking ? 'car-brake' : 'car',
+      this.currentFrame + left + this.damageOffset,
+    )
+  }
+
+  // light the taillights (recoloured sheet) while the brake is held
+  setBraking(braking: boolean) {
+    if (braking === this.braking) return
+    this.braking = braking
+    this.applyFrame()
   }
 
   // smoke/fire ride the car's rear, which swings 1px per lean frame away

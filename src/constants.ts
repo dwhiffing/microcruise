@@ -42,7 +42,8 @@ export const DAY_LENGTH = 180
 // power — higher keeps them hugging the peak of night, 1 = linear
 export const STAR_FADE_EXP = 5
 export const SKY_PHASES = [
-  { tint: 0xffb066, bg: 0x6b5a9e, drop: 8, world: 0xe0ab8d }, // sunrise
+  // { tint: 0x90679c, bg: 0x7057BA, drop: 8, world: 0xe0ab8d }, // sunrise
+  { tint: 0x7057ba, bg: 0x78408a, drop: 8, world: 0xa55eb5 }, // sunrise
   { tint: 0xffffff, bg: 0x4fa4f7, drop: 24, world: 0xffffff }, // noon
   { tint: 0xff7a4d, bg: 0x3a2b5f, drop: 8, world: 0xd98f75 }, // sunset
   { tint: 0x4a5a8e, bg: 0x0b0e2a, drop: 24, world: 0x55628f }, // night
@@ -76,6 +77,8 @@ export const OFFROAD_DECEL = 300
 export const OFFROAD_ACCEL_FACTOR = 0.35
 // max camera jitter (px) while off-road at speed
 export const OFFROAD_SHAKE = 0.2
+// camera jitter (px) while the tires are smoking (launch/braking)
+export const BURNOUT_SHAKE = 0.1
 // no shake below this speed; full shake at twice it
 export const OFFROAD_SHAKE_MIN_SPEED = 5
 
@@ -106,6 +109,10 @@ export const DRIFT_GRIP = 0.5
 export const TURN_SIGN_REPEATS = 8
 export const TURN_SIGN_GAP = 150
 export const TURN_SIGN_LEAD = 600
+
+// debug: skip the 3-2-1 countdown and start driving as soon as the car
+// pulls in
+export const SKIP_COUNTDOWN = true
 
 // seconds on the countdown clock; reaching zero ends the run
 export const RACE_TIME = 60
@@ -145,6 +152,13 @@ export const CAR_COLLIDE_LANE = 0.3
 // signs are narrow static posts, so a smaller box
 export const SIGN_COLLIDE_Z = 10
 export const SIGN_COLLIDE_LANE = 0.15
+
+// while braking, these car-sprite colours are swapped (the taillights
+// light up): [from, to] pairs baked into a recoloured copy of the sheet
+export const BRAKE_LIGHT_SWAPS: [number, number][] = [
+  [0xb42323, 0xff3b3b], // taillight red -> lit
+  [0x6a1212, 0xb42323], // dark red shade -> brightens
+]
 
 // css hex string -> Phaser color number
 const hex = (c: string) => parseInt(c.slice(1), 16)

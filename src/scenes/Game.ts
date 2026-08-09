@@ -5,6 +5,7 @@ import {
   BRAKE,
   BURN_DPS,
   BURN_THRESHOLD,
+  BURNOUT_SHAKE,
   CAR_COLLIDE_LANE,
   CAR_COLLIDE_Z,
   CENTRIFUGAL,
@@ -39,6 +40,7 @@ import {
   SEGMENT_LENGTH,
   SIGN_COLLIDE_LANE,
   SIGN_COLLIDE_Z,
+  SKIP_COUNTDOWN,
   SLOPE_DRAG,
   STEER_RATE,
   STEER_RETURN,
@@ -237,7 +239,7 @@ export class Game extends Scene {
       this.speed = Math.max(this.speed, objSpeed)
       this.bounceVx = side * 1.2
     }
-    this.cameras.main.shake(120, 0.02)
+    this.car.jolt()
   }
 
   // impact speed -> health loss: a hit at MAX_SPEED relative speed costs
@@ -344,6 +346,10 @@ export class Game extends Scene {
     // spot, then the 3-2-1 countdown runs; the clock and controls only
     // come alive once it finishes
     this.car.enter(() => {
+      if (SKIP_COUNTDOWN) {
+        this.paused = false
+        return
+      }
       this.ui.countdown(() => {
         this.paused = false
       })
@@ -465,7 +471,18 @@ export class Game extends Scene {
     this.updateDrift()
     this.updateGears()
     this.updateSpeed(dt, offRoad)
-    this.ui.setSpeed((this.speed / MAX_SPEED) * TOP_SPEED_MPH)
+    const mph = (this.speed / MAX_SPEED) * TOP_SPEED_MPH
+    this.ui.setSpeed(mph)
+
+    // tire puffs: spinning the wheels off the line (throttle under
+    // 25 mph), or scrubbing speed off under braking — smoke on tarmac,
+    // dirt when off in the grass
+    const throttle = this.keyZ.isDown || this.keyX.isDown
+    const braking = this.keyC.isDown && this.speed > 30
+    const tiresSmoking = (throttle && mph < 25 && mph > 1) || braking
+    if (tiresSmoking || (offRoad && mph > 0)) this.car.emitTireSmoke(offRoad)
+    // taillights light up whenever the brake is held
+    this.car.setBraking(this.keyC.isDown)
     // RPM follows an exponential curve of speed against the gear's max:
     // an upshift drops the revs to mid-band, then they surge to redline
     this.ui.setGearHud(
@@ -477,13 +494,18 @@ export class Game extends Scene {
     this.distance += this.speed * dt
 
     this.road.update(this.distance, this.playerX, dt)
-    this.car.draw(this.steerValue, this.steerInput, this.driftDir)
+    this.car.draw(
+      this.steerValue,
+      this.steerInput,
+      this.driftDir,
+      throttle && mph < 25 && !offRoad,
+    )
 
     this.updateTurnSigns()
     this.updateCheckpoints()
     this.updateTraffic(dt)
     this.handleCollisions()
-    this.updateOffroadShake(offRoad)
+    this.updateCarShake(offRoad, tiresSmoking)
   }
 
   // tap the brake while fast and turned hard to kick into a drift: the car
@@ -691,18 +713,16 @@ export class Game extends Scene {
     }
   }
 
-  // shake the camera while off-road, but only when actually moving fast —
-  // ramping in above the threshold, calm once slowed to a crawl
-  private updateOffroadShake(offRoad: boolean) {
+  // rattle the car (not the camera) while off-road at speed — ramping in
+  // above the threshold, calm once slowed to a crawl — or while the
+  // tires are smoking under a burnout or hard braking
+  private updateCarShake(offRoad: boolean, tiresSmoking: boolean) {
+    let shake = 0
     if (offRoad && this.speed > OFFROAD_SHAKE_MIN_SPEED) {
-      const shake =
+      shake =
         Math.min(1, this.speed / OFFROAD_SHAKE_MIN_SPEED - 1) * OFFROAD_SHAKE
-      this.cameras.main.setScroll(
-        (Math.random() - 0.5) * shake,
-        (Math.random() - 0.5) * shake,
-      )
-    } else {
-      this.cameras.main.setScroll(0, 0)
     }
+    if (tiresSmoking) shake = Math.max(shake, BURNOUT_SHAKE)
+    this.car.setShake(shake)
   }
 }

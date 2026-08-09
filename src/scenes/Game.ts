@@ -6,6 +6,8 @@ import {
   BURN_DPS,
   BURN_THRESHOLD,
   BURNOUT_SHAKE,
+  CAMERA_DEPTH,
+  CAMERA_HEIGHT,
   CAR_COLLIDE_LANE,
   CAR_COLLIDE_Z,
   CENTRIFUGAL,
@@ -21,8 +23,10 @@ import {
   DRIFT_MIN_SPEED,
   DRIFT_MIN_STEER,
   ENGINE_BRAKE,
+  GAME_HEIGHT,
   GEAR_ACCEL,
   GEAR_MAX,
+  HORIZON_Y,
   LANES,
   MAX_HEALTH,
   MAX_SCORE,
@@ -58,6 +62,7 @@ import { Checkpoint } from '../entities/Checkpoint'
 import { NpcCar } from '../entities/NpcCar'
 import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
+import { SkidMarks } from '../entities/SkidMarks'
 import { UI } from '../entities/UI'
 
 // turn-sign.png layout: 9 frames, largest first, each 2px narrower than
@@ -85,6 +90,7 @@ export class Game extends Scene {
   private keyC!: Phaser.Input.Keyboard.Key
   private road!: Road
   private car!: Car
+  private skidMarks!: SkidMarks
   private turnSigns: RoadObject[] = []
   private checkpoints: Checkpoint[] = []
   private nextCheckpointZ = CHECKPOINT_INTERVAL
@@ -128,6 +134,7 @@ export class Game extends Scene {
     this.music.pause()
 
     this.road = new Road(this)
+    this.skidMarks = new SkidMarks(this)
     this.car = new Car(this)
     this.road.onWorldTint = (tint) => this.car.setDayTint(tint)
     this.car.park()
@@ -345,15 +352,27 @@ export class Game extends Scene {
     // the car drives in from below the frame and brakes into its starting
     // spot, then the 3-2-1 countdown runs; the clock and controls only
     // come alive once it finishes
-    this.car.enter(() => {
-      if (SKIP_COUNTDOWN) {
-        this.paused = false
-        return
-      }
-      this.ui.countdown(() => {
-        this.paused = false
-      })
-    })
+    this.car.enter(
+      () => {
+        if (SKIP_COUNTDOWN) {
+          this.paused = false
+          return
+        }
+        this.ui.countdown(() => {
+          this.paused = false
+        })
+      },
+      (wheelY) => {
+        // the world is frozen during the entrance, so map the wheels'
+        // screen row back to a world depth on the flat straightaway —
+        // the marks land under the car and scroll away once it's driving
+        const scale =
+          (wheelY - HORIZON_Y) / (CAMERA_HEIGHT * (GAME_HEIGHT / 2))
+        if (scale <= 0) return
+        this.skidMarks.add(this.distance + CAMERA_DEPTH / scale, this.playerX)
+        this.skidMarks.update(this.road, this.distance)
+      },
+    )
   }
 
   gameOver = () => {
@@ -414,6 +433,7 @@ export class Game extends Scene {
       this.playerX += (0 - this.playerX) * Math.min(1, 2 * dt)
     }
     this.road.update(this.distance, this.playerX, dt)
+    this.skidMarks.update(this.road, this.distance)
     // spawns signs for freshly generated turns and culls passed ones
     this.updateTurnSigns()
     // leftover gantries scroll by without paying out their bonus
@@ -480,7 +500,8 @@ export class Game extends Scene {
     const throttle = this.keyZ.isDown || this.keyX.isDown
     const braking = this.keyC.isDown && this.speed > 30
     const tiresSmoking = (throttle && mph < 25 && mph > 1) || braking
-    if (tiresSmoking || (offRoad && mph > 0)) this.car.emitTireSmoke(offRoad)
+    const wheelsSpinning = tiresSmoking || (offRoad && mph > 0)
+    if (wheelsSpinning) this.car.emitTireSmoke(offRoad)
     // taillights light up whenever the brake is held
     this.car.setBraking(this.keyC.isDown)
     // RPM follows an exponential curve of speed against the gear's max:
@@ -494,6 +515,18 @@ export class Game extends Scene {
     this.distance += this.speed * dt
 
     this.road.update(this.distance, this.playerX, dt)
+    // the tires always leave a trail: barely-there while rolling, dark
+    // skid strips while spinning. Stamped after the distance advance so
+    // the newest mark sits exactly under the car, not a frame behind
+    if (this.speed > 0) {
+      this.skidMarks.add(
+        this.distance + PLAYER_Z,
+        this.playerX,
+        offRoad,
+        wheelsSpinning,
+      )
+    }
+    this.skidMarks.update(this.road, this.distance)
     this.car.draw(
       this.steerValue,
       this.steerInput,

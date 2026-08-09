@@ -227,7 +227,7 @@ export class Car {
   // rate limit spaces the puffs out
   emitTireSmoke(dirt = false) {
     const now = this.scene.time.now
-    if (now - this.lastTireSmoke < 340) return
+    if (now - this.lastTireSmoke < 150) return
     this.lastTireSmoke = now
     // wheel anchors follow the current lean frame, mirrored when the art
     // faces left
@@ -305,7 +305,7 @@ export class Car {
   // overshoots past the mark and settles back, reading as a hard stop.
   // The car swings in at a slight angle (random side) and straightens
   // through the lean frames as it brakes.
-  enter(onComplete: () => void) {
+  enter(onComplete: () => void, onSkid?: (wheelY: number) => void) {
     this.currentFrame = 2
     this.facing = Math.random() < 0.5 ? -1 : 1
     this.applyFrame()
@@ -320,8 +320,10 @@ export class Car {
           this.currentFrame = frame
           this.applyFrame()
         }
-        // the tires bite once the braking phase of the entrance begins
-        if (tween.progress > 0.1) this.emitTireSmoke()
+        // the tires bite once the braking phase of the entrance begins;
+        // the hook lets the scene lay skid marks under the rear wheels
+        this.emitTireSmoke()
+        onSkid?.(this.sprite.y + 8)
       },
       onComplete,
     })

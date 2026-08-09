@@ -398,13 +398,23 @@ export class Car {
     let target =
       mag < 0.1 ? 0 : Math.min(4, 1 + Math.floor(((mag - 0.1) / 0.9) * 4))
     // pressing a direction holds at least the first lean frame — but only
-    // while the wheel isn't still on the opposite side, so a direction
-    // switch rests on the straight frame until the wheel crosses over
-    if (steerInput !== 0 && target === 0 && steerInput * steerValue >= 0) {
+    // while the wheel isn't still on the opposite side AND the art is
+    // already facing that way. Otherwise (direction switch, or a launch
+    // squat leaning the wrong side) the frame must rest on straight so
+    // the facing can flip there
+    if (
+      steerInput !== 0 &&
+      target === 0 &&
+      steerInput * steerValue >= 0 &&
+      steerInput === this.facing
+    ) {
       target = 1
     }
-    // launching off the line never rests on the flat neutral frame
-    if (launching && target === 0) target = 1
+    // launching off the line never rests on the flat neutral frame — but
+    // only while no direction is held, so a turn can still pass through
+    // neutral to flip the car's facing instead of being pinned on the
+    // old side's lean
+    if (launching && target === 0 && steerInput === 0) target = 1
 
     // facing can only change while the car is centred, so a switch never
     // mirrors a lean — it passes through straight, turns, and climbs back

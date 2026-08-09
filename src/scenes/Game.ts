@@ -105,6 +105,7 @@ export class Game extends Scene {
   private bounceVx = 0 // lateral knockback from collisions, decays quickly
   private distance = 0
   private timeLeft = RACE_TIME
+  private outOfTime = false // clock at 0: controls cut, car coasting
   private health = MAX_HEALTH
   private damageCooldown = 0 // seconds of post-hit invulnerability left
   private paused = true
@@ -335,6 +336,7 @@ export class Game extends Scene {
     this.damageCooldown = 0
     this.car.reset()
     this.timeLeft = RACE_TIME
+    this.outOfTime = false
     this.ui.setTimer(RACE_TIME)
     this.runStartDistance = this.distance
     this.nextCheckpointZ = this.distance + CHECKPOINT_INTERVAL
@@ -479,13 +481,16 @@ export class Game extends Scene {
       }
     }
 
-    // the clock shows 0 for a full second before the run actually ends
-    this.timeLeft -= dt
-    if (this.timeLeft <= -1) {
+    // out of time: the clock floors at 0 and the controls cut out — the
+    // car just coasts. Rolling through a checkpoint refunds time (and
+    // with it control); coming to a stop ends the run
+    this.timeLeft = Math.max(0, this.timeLeft - dt)
+    this.outOfTime = this.timeLeft <= 0
+    if (this.outOfTime && this.speed <= 0) {
       this.gameOver()
       return
     }
-    this.ui.setTimer(Math.max(0, Math.ceil(this.timeLeft)))
+    this.ui.setTimer(Math.ceil(this.timeLeft))
 
     this.updateSteering(dt)
     this.updateDrift()
@@ -497,13 +502,14 @@ export class Game extends Scene {
     // tire puffs: spinning the wheels off the line (throttle under
     // 25 mph), or scrubbing speed off under braking — smoke on tarmac,
     // dirt when off in the grass
-    const throttle = this.keyZ.isDown || this.keyX.isDown
-    const braking = this.keyC.isDown && this.speed > 30
+    const throttle =
+      !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
+    const braking = !this.outOfTime && this.keyC.isDown && this.speed > 30
     const tiresSmoking = (throttle && mph < 25 && mph > 1) || braking
     const wheelsSpinning = tiresSmoking || (offRoad && mph > 0)
     if (wheelsSpinning) this.car.emitTireSmoke(offRoad)
     // taillights light up whenever the brake is held
-    this.car.setBraking(this.keyC.isDown)
+    this.car.setBraking(!this.outOfTime && this.keyC.isDown)
     // RPM follows an exponential curve of speed against the gear's max:
     // an upshift drops the revs to mid-band, then they surge to redline
     this.ui.setGearHud(
@@ -550,6 +556,7 @@ export class Game extends Scene {
       return
     }
     if (
+      !this.outOfTime &&
       Phaser.Input.Keyboard.JustDown(this.keyC) &&
       this.speed >= DRIFT_MIN_SPEED &&
       Math.abs(this.steerValue) >= DRIFT_MIN_STEER &&
@@ -602,10 +609,10 @@ export class Game extends Scene {
       // drifting: the boost overrides throttle and brake
       this.speed += DRIFT_ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
       this.speed = Math.min(this.speed, gearMax)
-    } else if (this.keyZ.isDown || this.keyX.isDown) {
+    } else if (!this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)) {
       this.speed += gearAccel * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
       this.speed = Math.min(this.speed, gearMax)
-    } else if (this.keyC.isDown) {
+    } else if (!this.outOfTime && this.keyC.isDown) {
       this.speed -= BRAKE * dt
     } else {
       this.speed -= COAST_DECEL * dt
@@ -622,8 +629,10 @@ export class Game extends Scene {
   // second — quick taps bite immediately, and the growth falls off as it
   // nears full lock. Releasing recenters at a constant rate.
   private updateSteering(dt: number) {
-    this.steerInput =
-      (this.cursors.left.isDown ? -1 : 0) + (this.cursors.right.isDown ? 1 : 0)
+    this.steerInput = this.outOfTime
+      ? 0
+      : (this.cursors.left.isDown ? -1 : 0) +
+        (this.cursors.right.isDown ? 1 : 0)
     if (this.steerInput !== 0) {
       this.steerValue +=
         (this.steerInput - this.steerValue) * Math.min(1, STEER_RATE * dt)

@@ -368,8 +368,7 @@ export class Game extends Scene {
         // the world is frozen during the entrance, so map the wheels'
         // screen row back to a world depth on the flat straightaway —
         // the marks land under the car and scroll away once it's driving
-        const scale =
-          (wheelY - HORIZON_Y) / (CAMERA_HEIGHT * (GAME_HEIGHT / 2))
+        const scale = (wheelY - HORIZON_Y) / (CAMERA_HEIGHT * (GAME_HEIGHT / 2))
         if (scale <= 0) return
         this.skidMarks.add(this.distance + CAMERA_DEPTH / scale, this.playerX)
         this.skidMarks.update(this.road, this.distance)
@@ -502,8 +501,7 @@ export class Game extends Scene {
     // tire puffs: spinning the wheels off the line (throttle under
     // 25 mph), or scrubbing speed off under braking — smoke on tarmac,
     // dirt when off in the grass
-    const throttle =
-      !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
+    const throttle = !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
     const braking = !this.outOfTime && this.keyC.isDown && this.speed > 30
     const tiresSmoking = (throttle && mph < 25 && mph > 1) || braking
     const wheelsSpinning = tiresSmoking || (offRoad && mph > 0)
@@ -533,9 +531,10 @@ export class Game extends Scene {
       )
     }
     this.skidMarks.update(this.road, this.distance)
+    const rolling = this.speed > 0
     this.car.draw(
-      this.steerValue,
-      this.steerInput,
+      rolling ? this.steerValue : 0,
+      rolling ? this.steerInput : 0,
       this.driftDir,
       throttle && mph < 25 && !offRoad,
     )

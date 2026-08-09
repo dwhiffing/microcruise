@@ -15,6 +15,12 @@ import {
   CHECKPOINT_INTERVAL,
   CHECKPOINT_REPAIR,
   COAST_DECEL,
+  COIN_COLLIDE_LANE,
+  COIN_COLLIDE_Z,
+  COIN_GAP,
+  COIN_INTERVAL,
+  COIN_POINTS,
+  COIN_ROW_COUNT,
   COLLISION_DAMAGE,
   DAMAGE_COOLDOWN,
   DRAW_SEGMENTS,
@@ -64,6 +70,7 @@ import {
 } from '../constants'
 import { Car } from '../entities/Car'
 import { Checkpoint } from '../entities/Checkpoint'
+import { Coin } from '../entities/Coin'
 import { NpcCar } from '../entities/NpcCar'
 import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
@@ -99,6 +106,9 @@ export class Game extends Scene {
   private turnSigns: RoadObject[] = []
   private checkpoints: Checkpoint[] = []
   private nextCheckpointZ = CHECKPOINT_INTERVAL
+  private coins: Coin[] = []
+  private nextCoinZ = 0
+  private coinScore = 0 // points banked from coins this run
   private traffic: NpcCar[] = []
   private speed = 0
   private playerX = 0 // -1..1 = on road, beyond that = grass
@@ -132,7 +142,8 @@ export class Game extends Scene {
 
   private get score() {
     return Phaser.Math.Clamp(
-      Math.floor((this.distance - this.runStartDistance) / 100),
+      Math.floor((this.distance - this.runStartDistance) / 1000) +
+        this.coinScore,
       0,
       MAX_SCORE,
     )
@@ -356,6 +367,10 @@ export class Game extends Scene {
     this.nextCheckpointZ = this.distance + CHECKPOINT_INTERVAL
     this.checkpoints.forEach((gantry) => gantry.destroy())
     this.checkpoints = []
+    this.coinScore = 0
+    this.nextCoinZ = this.distance + COIN_INTERVAL
+    this.coins.forEach((coin) => coin.destroy())
+    this.coins = []
 
     this.isGameOver = false
     // TODO: re-enable music
@@ -460,6 +475,9 @@ export class Game extends Scene {
       gantry.update(this.road)
       return true
     })
+    // leftover coins scroll by too — the camera isn't the car, so
+    // nothing gets collected
+    this.scrollCoins(false)
     for (const car of this.traffic) {
       if (car.z < this.distance - 100 || car.z > this.distance + 4000) {
         this.respawnCar(car)
@@ -563,6 +581,7 @@ export class Game extends Scene {
 
     this.updateTurnSigns()
     this.updateCheckpoints()
+    this.updateCoins()
     this.updateTraffic(dt)
     this.handleCollisions()
     this.updateCarShake(offRoad, tiresSmoking)
@@ -579,9 +598,7 @@ export class Game extends Scene {
       // outlasts the hard time cap
       this.driftTime += dt
       this.driftCounterTime =
-        this.steerInput === -this.driftDir
-          ? this.driftCounterTime + dt
-          : 0
+        this.steerInput === -this.driftDir ? this.driftCounterTime + dt : 0
       this.driftReleaseTime =
         this.steerInput === this.driftDir ? 0 : this.driftReleaseTime + dt
       if (
@@ -651,8 +668,7 @@ export class Game extends Scene {
       this.speed += DRIFT_ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
       this.speed = Math.min(this.speed, gearMax)
     } else {
-      const throttle =
-        !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
+      const throttle = !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
       const brake = !this.outOfTime && this.keyC.isDown
       if (throttle || brake) {
         // throttle and brake are independent forces, so dragging the
@@ -773,6 +789,43 @@ export class Game extends Scene {
         return false
       }
       gantry.update(this.road)
+      return true
+    })
+  }
+
+  // coin rows appear over a random lane at fixed track intervals; driving
+  // through a coin banks its points onto the score
+  private updateCoins() {
+    if (this.nextCoinZ - this.distance < 2000) {
+      const lane = ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+      for (let i = 0; i < COIN_ROW_COUNT; i++) {
+        this.coins.push(new Coin(this, this.nextCoinZ + i * COIN_GAP, lane))
+      }
+      this.nextCoinZ += COIN_INTERVAL
+    }
+    this.scrollCoins(true)
+  }
+
+  // cull coins that fall behind the camera, collect any the car is
+  // touching (skipped during the menu cruise), and animate the rest
+  private scrollCoins(collect: boolean) {
+    this.coins = this.coins.filter((coin) => {
+      if (coin.z < this.distance) {
+        coin.destroy()
+        return false
+      }
+      if (
+        collect &&
+        Math.abs(coin.z - (this.distance + PLAYER_Z)) < COIN_COLLIDE_Z &&
+        Math.abs(this.playerX - coin.laneOffset) < COIN_COLLIDE_LANE
+      ) {
+        this.coinScore += COIN_POINTS
+        this.sound.play('coin-hit', { volume: 0.5 })
+        this.car.emitCoin()
+        coin.destroy()
+        return false
+      }
+      coin.update(this.road)
       return true
     })
   }

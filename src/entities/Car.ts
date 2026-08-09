@@ -1,5 +1,5 @@
 import { GAME_HEIGHT, GAME_WIDTH, MAX_HEALTH } from '../constants'
-import { multiplyColor } from './Road'
+import { lerpColor, multiplyColor } from './Road'
 
 // while drifting, the lean advances one frame every this many ticks
 // (~60/s), so the ramp to full lock is visible rather than near-instant;
@@ -15,6 +15,11 @@ const OFFSCREEN_Y = GAME_HEIGHT + 20
 // hit feedback: body-coloured debris shards and yellow sparks
 const DEBRIS_COLOR = 0x6b4fc0
 const SPARK_COLOR = 0xffec27
+// the body flashes this colour when a coin is collected; strength is how
+// far from no-tint toward the full colour the wash goes (0-1)
+const COIN_FLASH_COLOR = 0x5959b3
+const COIN_FLASH_STRENGTH = 0.45
+const COIN_FLASH_MS = 60
 
 // where tire smoke spawns, relative to the sprite centre, for each lean
 // frame 0-5 (the art faces right; a left-facing car mirrors the x's):
@@ -102,6 +107,13 @@ export class Car {
       key: 'tire-dirt',
       frames: scene.anims.generateFrameNumbers('dirt'),
       frameRate: 14,
+    })
+    // coin pickup flash: loops while the coin floats up out of the car
+    scene.anims.create({
+      key: 'coin-spin',
+      frames: scene.anims.generateFrameNumbers('coin-spin'),
+      frameRate: 32,
+      repeat: -1,
     })
 
     // damage effects anchored to the car: flames sit on the body, the
@@ -261,6 +273,41 @@ export class Car {
       })
       puff.once('animationcomplete', () => puff.destroy())
     }
+  }
+
+  // coin collected: the body flashes the coin's colour and a spinning
+  // coin pops out of the car and floats up, hanging for a beat before it
+  // fades. Day-tinted like the smoke, so night pickups don't glow
+  emitCoin() {
+    // a partial-strength wash: blend the flash colour in from white so
+    // only a fraction of the red cast lands, then multiply with the day
+    // tint so night-time flashes don't glow
+    const wash = lerpColor(0xffffff, COIN_FLASH_COLOR, COIN_FLASH_STRENGTH)
+    this.sprite.setTint(multiplyColor(wash, this.dayTint))
+    this.flashing = true
+    this.scene.time.delayedCall(COIN_FLASH_MS, () => {
+      this.flashing = false
+      this.sprite.setTint(this.dayTint)
+    })
+
+    const coin = this.scene.add
+      .sprite(this.sprite.x, this.sprite.y - 10, 'coin-spin', 0)
+      .setDepth(2)
+      .setTint(this.dayTint)
+    coin.play('coin-spin')
+    this.scene.tweens.add({
+      targets: coin,
+      y: coin.y - 10,
+      duration: 350,
+      ease: 'Cubic.easeOut',
+    })
+    this.scene.tweens.add({
+      targets: coin,
+      alpha: 0,
+      delay: 200,
+      duration: 150,
+      onComplete: () => coin.destroy(),
+    })
   }
 
   // apply the day/night world multiply to the car and its smoke. Fire,

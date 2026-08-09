@@ -25,6 +25,14 @@ export class Boot extends Scene {
       frameWidth: 11,
       frameHeight: 11,
     })
+    this.load.spritesheet('coin', 'coin.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    })
+    this.load.spritesheet('coin-spin', 'coin-spin.png', {
+      frameWidth: 10,
+      frameHeight: 10,
+    })
     this.load.spritesheet('dirt', 'dirt.png', {
       frameWidth: 11,
       frameHeight: 11,

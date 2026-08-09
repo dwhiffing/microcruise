@@ -22,7 +22,7 @@ import { Track, TurnWarning } from './Track'
 
 const lerp = (a: number, b: number, p: number) => a + (b - a) * p
 
-const lerpColor = (a: number, b: number, p: number) =>
+export const lerpColor = (a: number, b: number, p: number) =>
   (Math.round(lerp((a >> 16) & 0xff, (b >> 16) & 0xff, p)) << 16) |
   (Math.round(lerp((a >> 8) & 0xff, (b >> 8) & 0xff, p)) << 8) |
   Math.round(lerp(a & 0xff, b & 0xff, p))
@@ -184,16 +184,46 @@ export class Road {
       return { screenX: 0, screenY: 0, scale: 0, visible: false }
     }
 
+    const halfW = GAME_WIDTH / 2
+    const halfH = GAME_HEIGHT / 2
     const next = this.track.at(seg.index + 1)
     const t = (z - seg.index * SEGMENT_LENGTH) / SEGMENT_LENGTH
-    const bendX =
-      next?.frame === this.frame ? lerp(seg.bendX, next.bendX, t) : seg.bendX
-    const objCx = bendX - this.camX + laneOffset * ROAD_WIDTH
     const objY = lerp(seg.y1, seg.y2, t) + groundHeight
 
     const scale = CAMERA_DEPTH / objZ
-    const screenY = HORIZON_Y - scale * (objY - this.camY) * (GAME_HEIGHT / 2)
-    const screenX = GAME_WIDTH / 2 + scale * objCx * (GAME_WIDTH / 2)
+    const screenY = HORIZON_Y - scale * (objY - this.camY) * halfH
+
+    // x comes from interpolating along the drawn trapezoid's edges at the
+    // object's screen row, NOT from true perspective. The road art is
+    // linear in screen rows between segment edges; true projection in
+    // between is not (on hills and curves), and the mismatch grows with
+    // the camera's lateral offset — objects placed "correctly" slide
+    // against the painted lanes whenever the player steers. Using the
+    // art's own interpolation glues them to it by construction. The near
+    // edge gets the same near-plane clamp as draw(), keeping the chord
+    // identical to the one the quad was drawn with.
+    const lane = laneOffset * ROAD_WIDTH
+    const farBendX = next?.frame === this.frame ? next.bendX : seg.bendX
+    let z1 = seg.index * SEGMENT_LENGTH - this.position
+    const z2 = z1 + SEGMENT_LENGTH
+    let y1 = seg.y1
+    let cx1 = seg.bendX - this.camX
+    const cx2 = farBendX - this.camX
+    if (z1 < 1) {
+      const tc = (1 - z1) / (z2 - z1)
+      y1 = lerp(seg.y1, seg.y2, tc)
+      cx1 = lerp(cx1, cx2, tc)
+      z1 = 1
+    }
+    const s1 = CAMERA_DEPTH / z1
+    const s2 = CAMERA_DEPTH / z2
+    const sy1 = HORIZON_Y - s1 * (y1 - this.camY) * halfH
+    const sy2 = HORIZON_Y - s2 * (seg.y2 - this.camY) * halfH
+    const sx1 = halfW + s1 * (cx1 + lane) * halfW
+    const sx2 = halfW + s2 * (cx2 + lane) * halfW
+    const tRow = sy2 === sy1 ? 1 : (screenY - sy1) / (sy2 - sy1)
+    const screenX = lerp(sx1, sx2, tRow)
+
     return { screenX, screenY, scale, visible: screenY < seg.clipY }
   }
 

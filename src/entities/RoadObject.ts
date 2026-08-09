@@ -24,6 +24,9 @@ export interface RoadObjectOptions {
   // screen-space px added to the projected y, to seat art that would
   // otherwise look like it floats above the road
   yOffset?: number
+  // vertical anchor: 1 (default) plants the art's bottom edge at the
+  // projected point; 0.5 centres it there, for art centred in its frame
+  originY?: number
 }
 
 // any sprite fixed to a point in the world (roadside prop, traffic, ...)
@@ -44,6 +47,10 @@ export class RoadObject {
   private scaleExponent: number
   private sizeFrames?: { frame: number; width: number }[]
   private yOffset: number
+  // height above the road in world units, projected like everything else
+  // (a hovering object's gap shrinks with distance) — unlike yOffset,
+  // which is flat screen px. Callers may animate it every frame
+  worldYOffset = 0
   // index into sizeFrames chosen by the last update(); 0 = the nearest,
   // full-detail frame (the only one callers may override, e.g. for lean)
   sizeIndex = -1
@@ -62,8 +69,12 @@ export class RoadObject {
       minScale = 0,
       maxScale = Infinity,
       scaleExponent = 1,
+      originY = 1,
     } = opts
-    this.sprite = scene.add.sprite(0, 0, texture).setOrigin(0.5, 1).setFlipX(flipX)
+    this.sprite = scene.add
+      .sprite(0, 0, texture)
+      .setOrigin(0.5, originY)
+      .setFlipX(flipX)
     this.pixelsPerWorldUnit = ((GAME_WIDTH / 2) * worldWidth) / this.sprite.width
     this.ignoreOcclusion = ignoreOcclusion
     this.minScale = minScale
@@ -83,7 +94,10 @@ export class RoadObject {
 
     this.sprite.setVisible(true)
     this.sprite.setTint(road.worldTint)
-    this.sprite.setPosition(screenX, screenY + this.yOffset)
+    this.sprite.setPosition(
+      screenX,
+      screenY + this.yOffset - this.worldYOffset * scale * (GAME_WIDTH / 2),
+    )
     let spriteScale = scale * this.pixelsPerWorldUnit
     if (this.scaleExponent !== 1) {
       // compress relative to the cap so the curve passes through maxScale
@@ -97,18 +111,28 @@ export class RoadObject {
       // show the pre-drawn variant closest to the projected art width, at
       // native scale — no resampling distortion
       const desired = spriteScale * this.sizeFrames[0].width
-      let best = 0
-      for (let i = 1; i < this.sizeFrames.length; i++) {
-        if (
-          Math.abs(this.sizeFrames[i].width - desired) <
-          Math.abs(this.sizeFrames[best].width - desired)
-        ) {
-          best = i
+      const smallest = this.sizeFrames[this.sizeFrames.length - 1]
+      if (desired < smallest.width) {
+        // farther than even the smallest variant represents: shrink that
+        // one, so the object grows in from a dot instead of popping in
+        // at native size
+        this.sizeIndex = this.sizeFrames.length - 1
+        this.sprite.setFrame(smallest.frame)
+        this.sprite.setScale(desired / smallest.width)
+      } else {
+        let best = 0
+        for (let i = 1; i < this.sizeFrames.length; i++) {
+          if (
+            Math.abs(this.sizeFrames[i].width - desired) <
+            Math.abs(this.sizeFrames[best].width - desired)
+          ) {
+            best = i
+          }
         }
+        this.sizeIndex = best
+        this.sprite.setFrame(this.sizeFrames[best].frame)
+        this.sprite.setScale(1)
       }
-      this.sizeIndex = best
-      this.sprite.setFrame(this.sizeFrames[best].frame)
-      this.sprite.setScale(1)
     } else {
       this.sprite.setScale(spriteScale)
     }

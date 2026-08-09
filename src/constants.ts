@@ -120,6 +120,21 @@ export const TURN_SIGN_REPEATS = 8
 export const TURN_SIGN_GAP = 150
 export const TURN_SIGN_LEAD = 600
 
+// floating coins: a row of COIN_ROW_COUNT spawns over a random lane
+// every COIN_INTERVAL world units, coins COIN_GAP apart; driving through
+// one banks COIN_POINTS onto the score. Each coin floats COIN_HOVER
+// world units off the tarmac
+export const COIN_POINTS = 10
+export const COIN_INTERVAL = 1500
+export const COIN_ROW_COUNT = 5
+export const COIN_GAP = 60
+export const COIN_WORLD_WIDTH = 20
+export const COIN_HOVER = 2
+// collection box, same convention as the collision boxes: length along
+// the track and half-width in lane units, physically constant
+export const COIN_COLLIDE_Z = 12
+export const COIN_COLLIDE_LANE = 0.25 * LANE_SCALE
+
 // debug: skip the 3-2-1 countdown and start driving as soon as the car
 // pulls in
 export const SKIP_COUNTDOWN = true

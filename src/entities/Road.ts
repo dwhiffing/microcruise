@@ -422,19 +422,21 @@ export class Road {
     if (farW <= 3) return
     const g = this.graphics
 
+    // the bumpers sit outside the road edges, adding to the drivable
+    // width instead of eating into it
     const ew1 = Math.max(2, nearW * 0.195) / 2
     const ew2 = Math.max(2, farW * 0.195) / 2
     g.fillStyle(band ? this.palette.edge : this.palette.edgeAlt)
-    this.quad(nearX - nearW + ew1, ew1, nearY, farX - farW + ew2, ew2, farY)
-    this.quad(nearX + nearW - ew1, ew1, nearY, farX + farW - ew2, ew2, farY)
+    this.quad(nearX - nearW - ew1, ew1, nearY, farX - farW - ew2, ew2, farY)
+    this.quad(nearX + nearW + ew1, ew1, nearY, farX + farW + ew2, ew2, farY)
 
     // dashed dividers between the lanes (LANES - 1 lines), drawn on the
     // plain (non-dithered) bands. Rasterized row by row with coverage
     // alpha on the fractional edges, so the thin lines blend against the
     // road instead of popping whole pixel columns as they recede
     if (band === 1 && farW > 4) {
-      const mw1 = Math.max(0.7, nearW * 0.05)
-      const mw2 = Math.max(0.7, farW * 0.05)
+      const mw1 = Math.max(0.5, nearW * 0.03)
+      const mw2 = Math.max(0.5, farW * 0.03)
       const rowTop = Math.max(0, Math.round(farY))
       const rowBottom = Math.min(GAME_HEIGHT, Math.round(nearY))
       const spanH = nearY - farY

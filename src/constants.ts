@@ -16,8 +16,10 @@ export const CAMERA_DEPTH = 0.8
 export const PLAYER_Z = CAMERA_HEIGHT * CAMERA_DEPTH
 
 // half-width of the road in world units
-export const ROAD_WIDTH = 60
+export const ROAD_WIDTH = 45
 export const LANES = 3
+export const REFERENCE_ROAD_WIDTH = 60
+export const LANE_SCALE = REFERENCE_ROAD_WIDTH / ROAD_WIDTH
 
 // world-x bend added per segment^2 per unit of curve intensity
 export const CURVE_WORLD = 2.6
@@ -103,6 +105,14 @@ export const DRIFT_MIN_SPEED = 250
 export const DRIFT_MIN_STEER = 0.01
 export const DRIFT_ACCEL = 80
 export const DRIFT_GRIP = 0.5
+// a drift tolerates taps of countersteer: holding the opposite
+// direction for this many continuous seconds ends it; going this long
+// without pressing the drift direction (neutral or opposite) also ends
+// it
+export const DRIFT_COUNTERSTEER_TIME = 0.12
+export const DRIFT_RELEASE_TIME = 0.4
+// a drift never lasts longer than this many seconds
+export const DRIFT_MAX_TIME = 3
 
 // turn-warning chevrons: how many repeats lead into a big turn, how far
 // apart they're spaced, and how far before the bend the first one sits
@@ -140,18 +150,21 @@ export const COLLISION_DAMAGE = 100
 // seconds of invulnerability after a hit, so one crash (which can overlap
 // the collision box for several frames) only costs damage once
 export const DAMAGE_COOLDOWN = 0.5
+// the tires scrub — skid marks and smoke — for this long after any impact
+export const IMPACT_SKID_TIME = 0.5
 // while on fire (health below BURN_THRESHOLD) the car bleeds this much
 // health per second, and can burn out completely
 export const BURN_THRESHOLD = 30
 export const BURN_DPS = 1
 
 // collision box around a car: length along the track (world units) and
-// half-width across it (road-relative lane units, like playerX)
+// half-width across it (road-relative lane units, like playerX). The
+// LANE_SCALE keeps the physical box size fixed as ROAD_WIDTH changes
 export const CAR_COLLIDE_Z = 15
-export const CAR_COLLIDE_LANE = 0.3
+export const CAR_COLLIDE_LANE = 0.3 * LANE_SCALE
 // signs are narrow static posts, so a smaller box
 export const SIGN_COLLIDE_Z = 10
-export const SIGN_COLLIDE_LANE = 0.15
+export const SIGN_COLLIDE_LANE = 0.15 * LANE_SCALE
 
 // while braking, these car-sprite colours are swapped (the taillights
 // light up): [from, to] pairs baked into a recoloured copy of the sheet

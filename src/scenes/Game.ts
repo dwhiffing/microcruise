@@ -19,14 +19,19 @@ import {
   DAMAGE_COOLDOWN,
   DRAW_SEGMENTS,
   DRIFT_ACCEL,
+  DRIFT_COUNTERSTEER_TIME,
   DRIFT_GRIP,
+  DRIFT_MAX_TIME,
   DRIFT_MIN_SPEED,
   DRIFT_MIN_STEER,
+  DRIFT_RELEASE_TIME,
   ENGINE_BRAKE,
   GAME_HEIGHT,
   GEAR_ACCEL,
   GEAR_MAX,
   HORIZON_Y,
+  IMPACT_SKID_TIME,
+  LANE_SCALE,
   LANES,
   MAX_HEALTH,
   MAX_SCORE,
@@ -100,6 +105,9 @@ export class Game extends Scene {
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
   private steerInput = 0 // raw held direction this frame: -1, 0, or 1
   private driftDir = 0 // -1/1 while drifting in that direction, 0 otherwise
+  private driftReleaseTime = 0 // seconds since the drift direction was held
+  private driftCounterTime = 0 // seconds the opposite direction has been held
+  private driftTime = 0 // seconds the current drift has been running
   private gear = 1 // current gear, 1-6
   private timeScale = 1 // debug slow-motion factor (keys 1-5)
   private bounceVx = 0 // lateral knockback from collisions, decays quickly
@@ -108,6 +116,7 @@ export class Game extends Scene {
   private outOfTime = false // clock at 0: controls cut, car coasting
   private health = MAX_HEALTH
   private damageCooldown = 0 // seconds of post-hit invulnerability left
+  private impactSkidTime = 0 // seconds of post-hit tire scrub left
   private paused = true
   private isGameOver = true
   private menuCruising = false // camera rolling along the road at the menu
@@ -225,6 +234,10 @@ export class Game extends Scene {
     const dLane = this.playerX - lane
     if (Math.abs(dz) >= halfZ || Math.abs(dLane) >= halfLane) return
 
+    // any impact breaks a drift and sets the tires scrubbing for a beat
+    this.driftDir = 0
+    this.impactSkidTime = IMPACT_SKID_TIME
+
     const side = dLane >= 0 ? 1 : -1
     const zPen = 1 - Math.abs(dz) / halfZ
     const lanePen = 1 - Math.abs(dLane) / halfLane
@@ -334,6 +347,7 @@ export class Game extends Scene {
     this.bounceVx = 0
     this.health = MAX_HEALTH
     this.damageCooldown = 0
+    this.impactSkidTime = 0
     this.car.reset()
     this.timeLeft = RACE_TIME
     this.outOfTime = false
@@ -469,6 +483,7 @@ export class Game extends Scene {
     const dt = (delta / 1000) * this.timeScale
     const offRoad = Math.abs(this.playerX) > 1
     this.damageCooldown = Math.max(0, this.damageCooldown - dt)
+    this.impactSkidTime = Math.max(0, this.impactSkidTime - dt)
 
     // on fire: health bleeds away and the car can burn out completely
     if (this.health < BURN_THRESHOLD) {
@@ -492,7 +507,7 @@ export class Game extends Scene {
     this.ui.setTimer(Math.ceil(this.timeLeft))
 
     this.updateSteering(dt)
-    this.updateDrift()
+    this.updateDrift(dt)
     this.updateGears()
     this.updateSpeed(dt, offRoad)
     const mph = (this.speed / MAX_SPEED) * TOP_SPEED_MPH
@@ -503,7 +518,12 @@ export class Game extends Scene {
     // dirt when off in the grass
     const throttle = !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
     const braking = !this.outOfTime && this.keyC.isDown && this.speed > 30
-    const tiresSmoking = (throttle && mph < 25 && mph > 1) || braking
+    const tiresSmoking =
+      (throttle && mph < 25 && mph > 1) ||
+      braking ||
+      this.driftDir !== 0 ||
+      this.car.isUnwinding() ||
+      this.impactSkidTime > 0
     const wheelsSpinning = tiresSmoking || (offRoad && mph > 0)
     if (wheelsSpinning) this.car.emitTireSmoke(offRoad)
     // taillights light up whenever the brake is held
@@ -528,6 +548,8 @@ export class Game extends Scene {
         this.playerX,
         offRoad,
         wheelsSpinning,
+        this.steerValue,
+        this.driftDir,
       )
     }
     this.skidMarks.update(this.road, this.distance)
@@ -549,11 +571,30 @@ export class Game extends Scene {
   // tap the brake while fast and turned hard to kick into a drift: the car
   // snaps to full lean and gains speed until the drift direction is
   // released
-  private updateDrift() {
+  private updateDrift(dt: number) {
     if (this.driftDir !== 0) {
-      if (this.steerInput !== this.driftDir) this.driftDir = 0
+      // taps of countersteer are tolerated — holding the opposite
+      // direction long enough ends the drift; so does going too long
+      // without pressing the drift direction at all; and no drift
+      // outlasts the hard time cap
+      this.driftTime += dt
+      this.driftCounterTime =
+        this.steerInput === -this.driftDir
+          ? this.driftCounterTime + dt
+          : 0
+      this.driftReleaseTime =
+        this.steerInput === this.driftDir ? 0 : this.driftReleaseTime + dt
+      if (
+        this.driftTime >= DRIFT_MAX_TIME ||
+        this.driftCounterTime >= DRIFT_COUNTERSTEER_TIME ||
+        this.driftReleaseTime >= DRIFT_RELEASE_TIME
+      ) {
+        this.driftDir = 0
+      }
       return
     }
+    this.driftReleaseTime = 0
+    this.driftCounterTime = 0
     if (
       !this.outOfTime &&
       Phaser.Input.Keyboard.JustDown(this.keyC) &&
@@ -562,6 +603,7 @@ export class Game extends Scene {
       Math.sign(this.steerValue) === this.steerInput
     ) {
       this.driftDir = this.steerInput
+      this.driftTime = 0
     }
   }
 
@@ -608,13 +650,22 @@ export class Game extends Scene {
       // drifting: the boost overrides throttle and brake
       this.speed += DRIFT_ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
       this.speed = Math.min(this.speed, gearMax)
-    } else if (!this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)) {
-      this.speed += gearAccel * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
-      this.speed = Math.min(this.speed, gearMax)
-    } else if (!this.outOfTime && this.keyC.isDown) {
-      this.speed -= BRAKE * dt
     } else {
-      this.speed -= COAST_DECEL * dt
+      const throttle =
+        !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
+      const brake = !this.outOfTime && this.keyC.isDown
+      if (throttle || brake) {
+        // throttle and brake are independent forces, so dragging the
+        // brake while accelerating nets out to losing speed — the brake
+        // is far stronger than any gear's pull
+        if (throttle) {
+          this.speed += gearAccel * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
+          this.speed = Math.min(this.speed, gearMax)
+        }
+        if (brake) this.speed -= BRAKE * dt
+      } else {
+        this.speed -= COAST_DECEL * dt
+      }
     }
     if (offRoad && this.speed > OFFROAD_MAX_SPEED) {
       this.speed -= OFFROAD_DECEL * dt
@@ -650,16 +701,21 @@ export class Game extends Scene {
   private updatePlayerX(dt: number) {
     const speedFactor = this.speed / REFERENCE_SPEED
     const steerAuthority = Math.min(speedFactor, 1.2)
-    this.playerX += this.steerValue * STEER_SPEED * steerAuthority * dt
+    // every lateral force is scaled by LANE_SCALE: playerX is a fraction
+    // of the road's half-width, so without it a wider road would make the
+    // same physical motion cover more ground
+    this.playerX +=
+      this.steerValue * STEER_SPEED * steerAuthority * LANE_SCALE * dt
     // drifting slides with the curve: only a fraction of the pull applies
     this.playerX -=
       this.road.curveAt(this.distance + PLAYER_Z) *
       CENTRIFUGAL *
       (this.driftDir !== 0 ? DRIFT_GRIP : 1) *
       speedFactor *
+      LANE_SCALE *
       dt
     // collision knockback: a decaying lateral shove away from the hit
-    this.playerX += this.bounceVx * dt
+    this.playerX += this.bounceVx * LANE_SCALE * dt
     this.bounceVx *= Math.max(0, 1 - 6 * dt)
     this.playerX = Phaser.Math.Clamp(this.playerX, -5, 5)
   }

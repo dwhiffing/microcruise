@@ -1,16 +1,28 @@
-import { GAME_WIDTH } from '../constants'
+import { GAME_WIDTH, ROAD_WIDTH } from '../constants'
 import { multiplyColor, Road } from './Road'
 
 // rubber laid on tarmac, torn turf when the wheels are in the grass
 const SKID_COLOR = 0x4d4d44
 const DIRT_SKID_COLOR = 0x5b3a24
-// how far the rear wheels sit either side of the car's lane position
-// (road-relative units, like playerX)
-const WHEEL_LANE = 0.11
-// a mark's width in world units (same units as ROAD_WIDTH)
+// axle geometry in world units, converted to road-relative so the
+// spread stays glued to the car no matter how wide the road is: rear
+// wheels at the stamp point, front wheels a car-length ahead on a
+// slightly narrower track
+const WHEEL_WORLD = 6.6
+const WHEEL_LANE = WHEEL_WORLD / ROAD_WIDTH
+const FRONT_WHEEL_WORLD = 5.5
+const FRONT_WHEEL_LANE = FRONT_WHEEL_WORLD / ROAD_WIDTH
+const FRONT_AXLE_Z = 9
+// the front axle swings sideways with the wheel: this many world units
+// at full steer lock, or a fixed amount while drifting — both signed
+// toward the turn direction
+const FRONT_STEER_OFFSET = 4.5
+const FRONT_DRIFT_OFFSET = 8
+// mark widths in world units (same units as ROAD_WIDTH), rear and front
 const MARK_WORLD_WIDTH = 4
-// oldest strips are dropped past this many entries (2 per add())
-const MAX_STRIPS = 240
+const FRONT_MARK_WORLD_WIDTH = 2.5
+// oldest strips are dropped past this many entries (4 per add())
+const MAX_STRIPS = 480
 // mark opacity: a hard skid (wheels spinning) vs the faint trail every
 // rolling tire leaves
 const STRONG_ALPHA = 0.6
@@ -28,6 +40,7 @@ interface Strip {
   z2: number
   lane1: number
   lane2: number
+  width: number // world units
   color: number
   alpha: number
 }
@@ -44,8 +57,7 @@ export class SkidMarks {
   private strips: Strip[] = []
   private prev: {
     z: number
-    left: number
-    right: number
+    wheels: { z: number; lane: number }[]
     time: number
   } | null = null
 
@@ -55,24 +67,57 @@ export class SkidMarks {
     this.gfx = scene.add.graphics().setDepth(0.01)
   }
 
-  // stamp the rear wheels at world depth z, straddling the car's lane
-  // position; each call links back to the previous one to form strips.
-  // strong = wheels spinning (dark skid); otherwise a faint rolling trail
-  add(z: number, lane: number, dirt = false, strong = true) {
+  // stamp all four wheels around the car's position (rear axle at z);
+  // each call links back to the previous one to form per-wheel strips.
+  // strong = wheels spinning (dark skid); otherwise a faint rolling
+  // trail. steer (-1..1) and driftDir swing the front axle sideways
+  add(
+    z: number,
+    lane: number,
+    dirt = false,
+    strong = true,
+    steer = 0,
+    driftDir = 0,
+  ) {
     const now = this.scene.time.now
-    const left = lane - WHEEL_LANE
-    const right = lane + WHEEL_LANE
+    const frontShift =
+      (driftDir !== 0
+        ? driftDir * FRONT_DRIFT_OFFSET
+        : steer * FRONT_STEER_OFFSET) / ROAD_WIDTH
+    const frontLane = lane + frontShift
+    const wheels = [
+      { z, lane: lane - WHEEL_LANE, width: MARK_WORLD_WIDTH },
+      { z, lane: lane + WHEEL_LANE, width: MARK_WORLD_WIDTH },
+      {
+        z: z + FRONT_AXLE_Z,
+        lane: frontLane - FRONT_WHEEL_LANE,
+        width: FRONT_MARK_WORLD_WIDTH,
+      },
+      {
+        z: z + FRONT_AXLE_Z,
+        lane: frontLane + FRONT_WHEEL_LANE,
+        width: FRONT_MARK_WORLD_WIDTH,
+      },
+    ]
     if (this.prev && z > this.prev.z && now - this.prev.time < CONNECT_MS) {
       const color = dirt ? DIRT_SKID_COLOR : SKID_COLOR
       const alpha = strong ? STRONG_ALPHA : FAINT_ALPHA
-      const { z: pz, left: pl, right: pr } = this.prev
-      this.strips.push({ z1: pz, z2: z, lane1: pl, lane2: left, color, alpha })
-      this.strips.push({ z1: pz, z2: z, lane1: pr, lane2: right, color, alpha })
+      for (let i = 0; i < wheels.length; i++) {
+        this.strips.push({
+          z1: this.prev.wheels[i].z,
+          z2: wheels[i].z,
+          lane1: this.prev.wheels[i].lane,
+          lane2: wheels[i].lane,
+          width: wheels[i].width,
+          color,
+          alpha,
+        })
+      }
       if (this.strips.length > MAX_STRIPS) {
         this.strips.splice(0, this.strips.length - MAX_STRIPS)
       }
     }
-    this.prev = { z, left, right, time: now }
+    this.prev = { z, wheels, time: now }
   }
 
   // redraw against the current projection (call after road.update);
@@ -94,11 +139,8 @@ export class SkidMarks {
       // the near end legitimately projects past the bottom edge, which
       // the crest test counts as hidden — only the far end decides
       if (!far.visible) continue
-      const wNear = Math.max(
-        1,
-        near.scale * (GAME_WIDTH / 2) * MARK_WORLD_WIDTH,
-      )
-      const wFar = Math.max(1, far.scale * (GAME_WIDTH / 2) * MARK_WORLD_WIDTH)
+      const wNear = Math.max(1, near.scale * (GAME_WIDTH / 2) * s.width)
+      const wFar = Math.max(1, far.scale * (GAME_WIDTH / 2) * s.width)
       this.gfx.fillStyle(multiplyColor(s.color, road.worldTint), s.alpha)
       this.gfx.fillPoints(
         [

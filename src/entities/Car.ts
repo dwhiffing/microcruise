@@ -2,8 +2,10 @@ import { GAME_HEIGHT, GAME_WIDTH, MAX_HEALTH } from '../constants'
 import { multiplyColor } from './Road'
 
 // while drifting, the lean advances one frame every this many ticks
-// (~60/s), so the ramp to full lock is visible rather than near-instant
+// (~60/s), so the ramp to full lock is visible rather than near-instant;
+// the unwind back to straight afterwards is slower still
 const DRIFT_LEAN_EVERY = 4
+const DRIFT_UNWIND_EVERY = 8
 
 // the car's racing position, and its parking spot below the frame while
 // the menu is up
@@ -56,6 +58,7 @@ export class Car {
   private facing = 1 // 1 = right-lean art, -1 = left (+6 within the row)
   private damageOffset = 0 // +12/+24 car-frame rows as health drops
   private driftTick = 0
+  private unwinding = false // easing back down from a drift's full lock
   // day/night multiply from the sky cycle
   private dayTint = 0xffffff
   private flashing = false // damage flash owns the sprite's tint while true
@@ -171,6 +174,12 @@ export class Car {
         trail: [],
       })
     }
+  }
+
+  // true while still easing back down from a drift's full lock — the
+  // skid marks/smoke/shake keep running until the car straightens out
+  isUnwinding() {
+    return this.unwinding && this.currentFrame > 0
   }
 
   // continuous shake amplitude (burnout, off-road), refreshed every frame
@@ -346,6 +355,8 @@ export class Car {
   // fresh run: car back, straightened, effects and leftover particles off
   reset() {
     this.braking = false
+    this.unwinding = false
+    this.driftTick = 0
     this.currentFrame = 0
     this.facing = 1
     this.sprite.setVisible(true)
@@ -387,11 +398,11 @@ export class Car {
       if (this.currentFrame < 5 && this.driftTick % DRIFT_LEAN_EVERY === 0) {
         this.currentFrame++
       }
+      this.unwinding = true
       this.applyFrame()
       this.positionEffects()
       return
     }
-    this.driftTick = 0
 
     // normal turns cap at frame 4 — frame 5 (full lock) is drift-only
     const mag = Math.abs(steerValue)
@@ -415,6 +426,23 @@ export class Car {
     // neutral to flip the car's facing instead of being pinned on the
     // old side's lean
     if (launching && target === 0 && steerInput === 0) target = 1
+
+    // coming off a drift, unwind the lock gently — one frame every
+    // DRIFT_UNWIND_EVERY ticks — so every lean frame shows on the way
+    // back down and the recovery reads slower than the ramp-in
+    if (this.unwinding) {
+      if (this.currentFrame <= target) {
+        this.unwinding = false
+        this.driftTick = 0
+      } else {
+        this.driftTick++
+        if (this.driftTick % DRIFT_UNWIND_EVERY === 0) this.currentFrame--
+        this.applyFrame()
+        this.positionEffects()
+        return
+      }
+    }
+    this.driftTick = 0
 
     // facing can only change while the car is centred, so a switch never
     // mirrors a lean — it passes through straight, turns, and climbs back

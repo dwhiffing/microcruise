@@ -1,6 +1,15 @@
-import { CAR_COLLIDE_LANE, LANE_SCALE } from '../constants'
+import { CAR_COLLIDE_LANE, LANE_SCALE, ROAD_WIDTH } from '../constants'
 import { Road } from './Road'
 import { RoadObject } from './RoadObject'
+
+// a knocked-over motorcycle's wreck: the fall sheet's bike starts near
+// the left edge of its wide frame, so the sprite is nudged toward the
+// slide direction (world units, mirrored with the flip) and down
+// (screen px); its momentum then bleeds off through friction (world
+// units/s^2) until it lies still
+const FALL_X_OFFSET = 13
+const FALL_Y_OFFSET = 0
+const FALL_FRICTION = 500
 
 // one traffic vehicle type: its sheet, physical size, pre-drawn distance
 // frames, and whether the sheet has lean art (frames 1-5 at the nearest
@@ -105,7 +114,8 @@ export const VEHICLES: VehicleSpec[] = [
     worldWidth: 12,
     hasLean: false,
     collideLane: 0.12 * LANE_SCALE,
-    scaleExponent: 0.62,
+    speedFactor: 0.65,
+    scaleExponent: 0.9,
     sizeFrames: [
       { frame: 0, width: 20 },
       { frame: 1, width: 18, yOffset: 1 },
@@ -135,6 +145,8 @@ export class NpcCar {
   speed = 0
   // fraction of the player's speed this car keeps up with
   rubberBand = 0.75
+  // knocked over: the wreck coasts on momentum, no driving, no hitbox
+  fallen = false
 
   constructor(
     scene: Phaser.Scene,
@@ -158,8 +170,39 @@ export class NpcCar {
     return this.spec.collideLane ?? CAR_COLLIDE_LANE
   }
 
+  // what this NPC is currently driving
+  get vehicle() {
+    return this.spec
+  }
+
+  // knocked over: swap to the fall sheet sliding toward `dir` (1 =
+  // right, matching the art; -1 flips) and coast on momentum from here —
+  // at least `shove`, so a hard hit carries the wreck along in view
+  // while the animation plays out
+  fall(dir: number, shove: number) {
+    this.fallen = true
+    this.speed = Math.max(this.speed, shove)
+    this.laneOffset += (dir * FALL_X_OFFSET) / ROAD_WIDTH
+    this.obj.destroy()
+    this.obj = new RoadObject(
+      this.scene,
+      'motorcycle-fall',
+      this.z,
+      this.laneOffset,
+      {
+        worldWidth: 38,
+        maxScale: 1,
+        flipX: dir < 0,
+        yOffset: FALL_Y_OFFSET,
+      },
+    )
+    this.obj.play('motorcycle-fall')
+  }
+
   setVehicle(spec: VehicleSpec) {
-    if (this.spec === spec) return
+    // a fallen bike always rebuilds — its sprite is the wreck sheet
+    if (this.spec === spec && !this.fallen) return
+    this.fallen = false
     this.spec = spec
     this.obj?.destroy()
     // the compressed falloff (exponent < 1) brings vehicles close to full
@@ -180,6 +223,14 @@ export class NpcCar {
   }
 
   update(road: Road, dt: number, playerSpeed: number, capSpeed = Infinity) {
+    if (this.fallen) {
+      // a wreck only coasts, sliding out on friction until it lies still
+      this.speed = Math.max(0, this.speed - FALL_FRICTION * dt)
+      this.z += this.speed * dt
+      this.obj.z = this.z
+      this.obj.update(road)
+      return
+    }
     // rubber-band: never slower than its own cruise pace, but keeps up with
     // a fast player (at a per-car fraction < 1, so it can still be caught),
     // easing toward the target so speed changes read as driving. Heavy

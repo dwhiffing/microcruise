@@ -173,6 +173,12 @@ export class RoadObject {
     this.sprite.setDepth(scale)
   }
 
+  // play a one-shot animation on the sprite (crash effects, etc.)
+  play(key: string, onComplete?: () => void) {
+    this.sprite.play(key)
+    if (onComplete) this.sprite.once('animationcomplete', onComplete)
+  }
+
   setFrame(frame: number, flipX?: boolean) {
     this.sprite.setFrame(frame)
     if (flipX !== undefined) this.sprite.setFlipX(flipX)

@@ -158,6 +158,14 @@ export class Game extends Scene {
     this.music = this.sound.add('music', { loop: true, volume: 0.3 })
     this.music.pause()
 
+    // a struck motorcycle tips over and slides out, holding its final
+    // wrecked frame until it scrolls behind the camera
+    this.anims.create({
+      key: 'motorcycle-fall',
+      frames: this.anims.generateFrameNumbers('motorcycle-fall'),
+      frameRate: 14,
+    })
+
     this.road = new Road(this)
     this.skidMarks = new SkidMarks(this)
     this.car = new Car(this)
@@ -178,20 +186,24 @@ export class Game extends Scene {
     if (this.highScore > 0) {
       this.ui.scoreText.setText(`HIGH SCORE\n${this.highScore}`)
     }
-    ;['W', 'E', 'R', 'T'].forEach((key, i) => {
+    ;['Q', 'W', 'E', 'R', 'T'].forEach((key, i) => {
       if (i === 0)
         this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 0.5
+          this.timeScale = 0.1
         })
       if (i === 1)
         this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 1
+          this.timeScale = 0.5
         })
       if (i === 2)
         this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 2
+          this.timeScale = 1
         })
       if (i === 3)
+        this.input.keyboard!.on(`keydown-${key}`, () => {
+          this.timeScale = 2
+        })
+      if (i === 4)
         this.input.keyboard!.on(`keydown-${key}`, () => {
           this.timeScale = 8
         })
@@ -291,17 +303,18 @@ export class Game extends Scene {
   // box-collide the player with something at (z, lane) moving at objSpeed
   // (0 for static props). Bounce direction comes from the collision normal:
   // the axis with the shallower overlap. Overlap is resolved immediately
-  // (snap out) plus a decaying lateral impulse.
+  // (snap out) plus a decaying lateral impulse. Returns which side of the
+  // object the player was on (-1/1), or null for no contact
   private collide(
     z: number,
     lane: number,
     halfZ: number,
     halfLane: number,
     objSpeed: number,
-  ) {
+  ): number | null {
     const dz = z - (this.distance + PLAYER_Z)
     const dLane = this.playerX - lane
-    if (Math.abs(dz) >= halfZ || Math.abs(dLane) >= halfLane) return
+    if (Math.abs(dz) >= halfZ || Math.abs(dLane) >= halfLane) return null
 
     // any impact breaks a drift and sets the tires scrubbing for a beat
     this.driftDir = 0
@@ -330,6 +343,7 @@ export class Game extends Scene {
       this.bounceVx = side * 1.2
     }
     this.car.jolt()
+    return side
   }
 
   // impact speed -> health loss: a hit at MAX_SPEED relative speed costs
@@ -902,13 +916,20 @@ export class Game extends Scene {
   // collisions: cars and roadside signs both bounce the player
   private handleCollisions() {
     for (const car of this.traffic) {
-      this.collide(
+      // a downed bike lies flat — nothing left to hit
+      if (car.fallen) continue
+      const side = this.collide(
         car.z,
         car.laneOffset,
         CAR_COLLIDE_Z,
         car.collideLane,
         car.speed,
       )
+      // knocking over a motorcycle: it goes down where it was struck,
+      // toppling away from the player and carried on by the impact
+      if (side !== null && car.vehicle.texture === 'motorcycle') {
+        car.fall(-side, this.speed)
+      }
     }
     for (const sign of this.turnSigns) {
       this.collide(

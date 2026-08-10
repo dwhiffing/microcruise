@@ -8,7 +8,6 @@ import {
   BURNOUT_SHAKE,
   CAMERA_DEPTH,
   CAMERA_HEIGHT,
-  CAR_COLLIDE_LANE,
   CAR_COLLIDE_Z,
   CENTRIFUGAL,
   CHECKPOINT_BONUS,
@@ -71,7 +70,7 @@ import {
 import { Car } from '../entities/Car'
 import { Checkpoint } from '../entities/Checkpoint'
 import { Coin } from '../entities/Coin'
-import { NpcCar } from '../entities/NpcCar'
+import { NpcCar, VEHICLES } from '../entities/NpcCar'
 import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
 import { SkidMarks } from '../entities/SkidMarks'
@@ -92,6 +91,11 @@ const MENU_DRIVE_SPEED = 400
 // its brake into the run-start straightaway
 const MENU_DRIVE_ACCEL = 300
 const MENU_BRAKE_DECEL = 900
+
+// traffic car-following: an NPC closing on a slower one in its lane
+// matches its speed once within this many world units, instead of
+// driving through it (also the spacing respawns keep clear)
+const FOLLOW_GAP = 60
 
 export class Game extends Scene {
   public ui!: UI
@@ -198,6 +202,29 @@ export class Game extends Scene {
       this.takeDamage(this.speed)
     })
 
+    // debug: 1-4 drops a specific vehicle type onto the road ahead by
+    // repurposing whichever traffic car is farthest from the player
+    ;['ONE', 'TWO', 'THREE', 'FOUR'].forEach((key, i) => {
+      this.input.keyboard!.on(`keydown-${key}`, () => {
+        const spec = VEHICLES[i]
+        if (!spec) return
+        let car = this.traffic[0]
+        for (const other of this.traffic) {
+          if (
+            Math.abs(other.z - this.distance) > Math.abs(car.z - this.distance)
+          ) {
+            car = other
+          }
+        }
+        car.setVehicle(spec)
+        car.z = this.distance + 500
+        car.laneOffset =
+          ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+        car.baseSpeed = TRAFFIC_MIN_SPEED
+        car.speed = TRAFFIC_MIN_SPEED
+      })
+    })
+
     this.input.keyboard!.on('keydown-M', () => {
       const newMute = !this.game.sound.mute
       this.game.sound.setMute(newMute)
@@ -220,14 +247,45 @@ export class Game extends Scene {
   }
 
   // drop a traffic car onto a random lane centre, somewhere ahead of the
-  // player, with a fresh cruising speed and rubber-band personality
+  // player, with a fresh cruising speed and rubber-band personality; the
+  // spot is re-rolled if it lands on top of another NPC's lane slot
   private respawnCar(car: NpcCar) {
-    car.z = this.distance + 800 + Math.random() * 1500
-    car.laneOffset = ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+    for (let tries = 0; tries < 6; tries++) {
+      car.z = this.distance + 800 + Math.random() * 1500
+      car.laneOffset =
+        ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+      if (!this.laneBlocked(car, FOLLOW_GAP * 2)) break
+    }
+    // it respawns beyond the horizon, so it can come back as anything
+    car.randomizeVehicle()
     car.baseSpeed =
       TRAFFIC_MIN_SPEED +
       Math.random() * (TRAFFIC_MAX_SPEED - TRAFFIC_MIN_SPEED)
     car.rubberBand = 0.6 + Math.random() * 0.3
+  }
+
+  // is another NPC within `gap` (either direction) of this one's lane slot?
+  private laneBlocked(car: NpcCar, gap: number): boolean {
+    return this.traffic.some(
+      (other) =>
+        other !== car &&
+        Math.abs(other.laneOffset - car.laneOffset) < 0.1 &&
+        Math.abs(other.z - car.z) < gap,
+    )
+  }
+
+  // the speed of the slower NPC this one is about to rear-end in its own
+  // lane, or Infinity when the road ahead is clear — NPCs hold their
+  // lane, so the follower matches pace instead of driving through
+  private followCap(car: NpcCar): number {
+    let cap = Infinity
+    for (const other of this.traffic) {
+      if (other === car) continue
+      if (Math.abs(other.laneOffset - car.laneOffset) > 0.1) continue
+      const dz = other.z - car.z
+      if (dz > 0 && dz < FOLLOW_GAP) cap = Math.min(cap, other.speed)
+    }
+    return cap
   }
 
   // box-collide the player with something at (z, lane) moving at objSpeed
@@ -482,7 +540,7 @@ export class Game extends Scene {
       if (car.z < this.distance - 100 || car.z > this.distance + 4000) {
         this.respawnCar(car)
       }
-      car.update(this.road, dt, MENU_DRIVE_SPEED)
+      car.update(this.road, dt, MENU_DRIVE_SPEED, this.followCap(car))
     }
     if (arrived) {
       this.menuCruising = false
@@ -837,7 +895,7 @@ export class Game extends Scene {
       if (car.z < this.distance - 100 || car.z > this.distance + 4000) {
         this.respawnCar(car)
       }
-      car.update(this.road, dt, this.speed)
+      car.update(this.road, dt, this.speed, this.followCap(car))
     }
   }
 
@@ -848,7 +906,7 @@ export class Game extends Scene {
         car.z,
         car.laneOffset,
         CAR_COLLIDE_Z,
-        CAR_COLLIDE_LANE,
+        car.collideLane,
         car.speed,
       )
     }

@@ -42,6 +42,18 @@ export class Boot extends Scene {
       frameWidth: 32,
       frameHeight: 16,
     })
+    this.load.spritesheet('truck', 'truck.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    })
+    this.load.spritesheet('semi', 'semi.png', {
+      frameWidth: 32,
+      frameHeight: 48,
+    })
+    this.load.spritesheet('motorcycle', 'motorcycle.png', {
+      frameWidth: 16,
+      frameHeight: 20,
+    })
     this.load.image('sky-bg', 'sky-bg.png')
     this.load.image('sky-fg', 'sky-fg.png')
     this.load.image('stars', 'stars.png')

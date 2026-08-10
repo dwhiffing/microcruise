@@ -1,6 +1,11 @@
 import { GAME_WIDTH } from '../constants'
 import { Road } from './Road'
 
+// a newly picked size frame must beat the current one by this many px of
+// projected width, so jitter at a boundary (e.g. traffic pacing the
+// player) can't strobe between adjacent variants
+// const SIZE_FRAME_HYSTERESIS = 1
+
 export interface RoadObjectOptions {
   // the object's real-world width, in the same units as ROAD_WIDTH — it
   // renders at that width relative to the road at every distance
@@ -19,8 +24,15 @@ export interface RoadObjectOptions {
   // pre-drawn size variants, largest first: spritesheet frame + the width
   // (px) of the art drawn in it. When set, the sprite is never scaled —
   // the frame whose art width best matches the projected width is shown at
-  // native size, so pixels stay crisp instead of distorting
-  sizeFrames?: { frame: number; width: number }[]
+  // native size, so pixels stay crisp instead of distorting. yOffset (px)
+  // seats an individual variant whose art doesn't share the sheet's
+  // baseline (e.g. art centred in its frame)
+  sizeFrames?: { frame: number; width: number; yOffset?: number }[]
+  // with sizeFrames: when the projected width falls below even the
+  // smallest variant, scale that frame down so the object grows in from
+  // a dot (collectibles). Default off — the smallest variant holds at
+  // native size, keeping pixels crisp (vehicles, signs)
+  growFromDot?: boolean
   // screen-space px added to the projected y, to seat art that would
   // otherwise look like it floats above the road
   yOffset?: number
@@ -45,7 +57,8 @@ export class RoadObject {
   private minScale: number
   private maxScale: number
   private scaleExponent: number
-  private sizeFrames?: { frame: number; width: number }[]
+  private sizeFrames?: { frame: number; width: number; yOffset?: number }[]
+  private growFromDot: boolean
   private yOffset: number
   // height above the road in world units, projected like everything else
   // (a hovering object's gap shrinks with distance) — unlike yOffset,
@@ -75,17 +88,22 @@ export class RoadObject {
       .sprite(0, 0, texture)
       .setOrigin(0.5, originY)
       .setFlipX(flipX)
-    this.pixelsPerWorldUnit = ((GAME_WIDTH / 2) * worldWidth) / this.sprite.width
+    this.pixelsPerWorldUnit =
+      ((GAME_WIDTH / 2) * worldWidth) / this.sprite.width
     this.ignoreOcclusion = ignoreOcclusion
     this.minScale = minScale
     this.maxScale = maxScale
     this.scaleExponent = scaleExponent
     this.sizeFrames = opts.sizeFrames
+    this.growFromDot = opts.growFromDot ?? false
     this.yOffset = opts.yOffset ?? 0
   }
 
   update(road: Road) {
-    const { screenX, screenY, scale, visible } = road.project(this.z, this.laneOffset)
+    const { screenX, screenY, scale, visible } = road.project(
+      this.z,
+      this.laneOffset,
+    )
 
     if ((!visible && !this.ignoreOcclusion) || scale <= 0) {
       this.sprite.setVisible(false)
@@ -112,13 +130,15 @@ export class RoadObject {
       // native scale — no resampling distortion
       const desired = spriteScale * this.sizeFrames[0].width
       const smallest = this.sizeFrames[this.sizeFrames.length - 1]
-      if (desired < smallest.width) {
+      if (desired < smallest.width && this.growFromDot) {
         // farther than even the smallest variant represents: shrink that
         // one, so the object grows in from a dot instead of popping in
         // at native size
+        const shrink = desired / smallest.width
         this.sizeIndex = this.sizeFrames.length - 1
         this.sprite.setFrame(smallest.frame)
-        this.sprite.setScale(desired / smallest.width)
+        this.sprite.setScale(shrink)
+        this.sprite.y += (smallest.yOffset ?? 0) * shrink
       } else {
         let best = 0
         for (let i = 1; i < this.sizeFrames.length; i++) {
@@ -129,9 +149,22 @@ export class RoadObject {
             best = i
           }
         }
+        // // sticky: hold the current variant unless the new pick is
+        // // decisively closer
+        // const cur = this.sizeFrames[this.sizeIndex]
+        // if (
+        //   best !== this.sizeIndex &&
+        //   cur &&
+        //   Math.abs(cur.width - desired) <
+        //     Math.abs(this.sizeFrames[best].width - desired) +
+        //       SIZE_FRAME_HYSTERESIS
+        // ) {
+        //   best = this.sizeIndex
+        // }
         this.sizeIndex = best
         this.sprite.setFrame(this.sizeFrames[best].frame)
         this.sprite.setScale(1)
+        this.sprite.y += this.sizeFrames[best].yOffset ?? 0
       }
     } else {
       this.sprite.setScale(spriteScale)

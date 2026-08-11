@@ -136,6 +136,8 @@ export class Game extends Scene {
   private paused = true
   private isGameOver = true
   private menuCruising = false // camera rolling along the road at the menu
+  private gearMenuOpen = false // picking manual/automatic before the run
+  private autoShift = AUTO_SHIFT // transmission choice, from the gear menu
   private startPending = false // start pressed: cruising to the aligned straight
   private menuTarget = 0 // z where the pre-run straightaway begins
   private cruisePace = MENU_DRIVE_SPEED // stateful, so speed never steps
@@ -258,7 +260,15 @@ export class Game extends Scene {
 
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => {
       const key = e.key.toLowerCase()
-      if (!e.key.includes('Arrow') && key !== 'z' && key !== 'x') return
+      const isArrow = e.key.includes('Arrow')
+      if (!isArrow && key !== 'z' && key !== 'x') return
+      // while the transmission picker is up, arrows switch the choice
+      // (two options, so any arrow toggles); x/z confirm and start
+      if (this.gearMenuOpen && isArrow) {
+        this.autoShift = !this.autoShift
+        this.ui.setGearMenu(this.autoShift)
+        return
+      }
       this.startGame()
     })
 
@@ -394,12 +404,21 @@ export class Game extends Scene {
   // it (aligned with the first-boot view), then beginRun() takes over
   startGame = () => {
     if (!this.isGameOver || !this.menuCruising) return
+    // first press: the transmission picker, not the run
+    if (!this.gearMenuOpen && !this.startPending) {
+      this.gearMenuOpen = true
+      this.ui.showGearMenu(this.autoShift)
+      return
+    }
     if (this.startPending) {
       // pressing again skips ahead: teleport 95% of the way there and
       // let the cruise's brake ease out the last stretch
       this.distance += (this.menuTarget - this.distance) * 0.85
       return
     }
+    // transmission confirmed: the run proper begins
+    this.gearMenuOpen = false
+    this.ui.hideGearMenu()
     this.startPending = true
 
     this.ui.cancelMenu()
@@ -711,9 +730,10 @@ export class Game extends Scene {
   }
 
   // gears 1-6: automatic (shift up at redline under throttle, down as
-  // speed falls) or instant manual shifts on up/down
+  // speed falls) or instant manual shifts on up/down, per the
+  // transmission picked at the start menu
   private updateGears() {
-    if (AUTO_SHIFT) {
+    if (this.autoShift) {
       const gearMax = GEAR_MAX[this.gear - 1] * MAX_SPEED
       if (
         this.gear < 6 &&

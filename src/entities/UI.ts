@@ -36,6 +36,8 @@ export class UI {
   private rpmTarget = -1 // px width the fill is currently tweening toward
   private countdownDigit: GameObjects.Sprite
   private countdownShadow: GameObjects.Sprite
+  private gearManual: GameObjects.Sprite
+  private gearAuto: GameObjects.Sprite
   private lastTimer = -1 // last value setTimer displayed
   private timerFade?: Phaser.Tweens.Tween
   // every HUD element with its designed resting alpha, for the fade-in
@@ -122,6 +124,18 @@ export class UI {
       .setOrigin(0, 0)
       .setDepth(10)
       .setAlpha(0.8)
+      .setVisible(false)
+
+    // transmission picker ('gearing' sheet: 0/1 = manual off/on, 2/3 =
+    // automatic off/on), stacked to fill the screen; shown between the
+    // title and the run start
+    this.gearManual = scene.add
+      .sprite(32, 22, 'gearing', 0)
+      .setDepth(10)
+      .setVisible(false)
+    this.gearAuto = scene.add
+      .sprite(32, 42, 'gearing', 2)
+      .setDepth(10)
       .setVisible(false)
 
     // 3-2-1 countdown: a big centred score-font digit over a black drop
@@ -331,6 +345,47 @@ export class UI {
             },
           })
         }
+      },
+    })
+  }
+
+  // the transmission picker: the title fades away (alpha only, so the
+  // next playTitleAnimation restores it) and the two options fade in
+  // over it
+  showGearMenu(auto: boolean) {
+    this.cancelMenu()
+    this.scene.tweens.add({
+      targets: [this.title, this.titleText, this.scoreText],
+      alpha: 0,
+      duration: 300,
+    })
+    this.setGearMenu(auto)
+    this.gearManual.setVisible(true).setAlpha(0)
+    this.gearAuto.setVisible(true).setAlpha(0)
+    this.scene.tweens.add({
+      targets: [this.gearManual, this.gearAuto],
+      alpha: 1,
+      duration: 300,
+      delay: 150,
+    })
+  }
+
+  // highlight the selected option
+  setGearMenu(auto: boolean) {
+    this.gearManual.setFrame(auto ? 0 : 1)
+    this.gearAuto.setFrame(auto ? 3 : 2)
+  }
+
+  // confirmed: the picker fades back out as the run approach begins
+  hideGearMenu() {
+    this.scene.tweens.killTweensOf([this.gearManual, this.gearAuto])
+    this.scene.tweens.add({
+      targets: [this.gearManual, this.gearAuto],
+      alpha: 0,
+      duration: 300,
+      onComplete: () => {
+        this.gearManual.setVisible(false)
+        this.gearAuto.setVisible(false)
       },
     })
   }

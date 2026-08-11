@@ -281,8 +281,8 @@ export class UI {
         digit.setFrame(Number(text[i]))
         digit.setScale(scale)
         digit.x = 33 + (i * 8 + 4 - text.length * 4) * scale
-        // origin is top-centre, so centre the scaled digit vertically
-        digit.y = urgent ? 32 - (digit.height * scale) / 2 : 0
+        // top-centre origin: the enlarged digits grow downward in place
+        digit.y = 0
         if (seconds < 4) digit.setTintFill(0xff3b3b)
         else digit.clearTint()
         if (urgent) {

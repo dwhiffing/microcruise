@@ -73,6 +73,7 @@ import { Coin } from '../entities/Coin'
 import { NpcCar, VEHICLES } from '../entities/NpcCar'
 import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
+import { Scenery } from '../entities/Scenery'
 import { SkidMarks } from '../entities/SkidMarks'
 import { UI } from '../entities/UI'
 
@@ -107,6 +108,7 @@ export class Game extends Scene {
   private road!: Road
   private car!: Car
   private skidMarks!: SkidMarks
+  private scenery!: Scenery
   private turnSigns: RoadObject[] = []
   private checkpoints: Checkpoint[] = []
   private nextCheckpointZ = CHECKPOINT_INTERVAL
@@ -167,6 +169,7 @@ export class Game extends Scene {
     })
 
     this.road = new Road(this)
+    this.scenery = new Scenery(this)
     this.skidMarks = new SkidMarks(this)
     this.car = new Car(this)
     this.road.onWorldTint = (tint) => this.car.setDayTint(tint)
@@ -536,6 +539,7 @@ export class Game extends Scene {
     }
     this.road.update(this.distance, this.playerX, dt)
     this.skidMarks.update(this.road, this.distance)
+    this.scenery.update(this.road, this.distance)
     // spawns signs for freshly generated turns and culls passed ones
     this.updateTurnSigns()
     // leftover gantries scroll by without paying out their bonus
@@ -651,6 +655,7 @@ export class Game extends Scene {
       throttle && mph < 25 && !offRoad,
     )
 
+    this.scenery.update(this.road, this.distance)
     this.updateTurnSigns()
     this.updateCheckpoints()
     this.updateCoins()
@@ -940,6 +945,10 @@ export class Game extends Scene {
         0,
       )
     }
+    // solid scenery (tree trunks) hits like the static signs do
+    this.scenery.forEachCollider((z, lane, halfZ, halfLane) => {
+      this.collide(z, lane, halfZ, halfLane, 0)
+    })
   }
 
   // rattle the car (not the camera) while off-road at speed — ramping in

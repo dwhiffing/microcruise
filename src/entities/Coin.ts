@@ -50,7 +50,7 @@ export class Coin extends RoadObject {
       sizeFrames: SIZE_FRAMES,
       // far coins ease in from a scaled-down dot instead of popping in
       // at the smallest frame's native size
-      growFromDot: true,
+      growFromDot: false,
       // the art is centred in its frame, not sitting on its bottom edge,
       // so anchor the middle and let the hover offset carry it upward
       originY: 0.5,

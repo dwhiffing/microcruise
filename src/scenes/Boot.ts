@@ -58,6 +58,23 @@ export class Boot extends Scene {
       frameWidth: 48,
       frameHeight: 20,
     })
+    // roadside decals, each a largest-first series of pre-drawn sizes
+    this.load.spritesheet('bush', 'bush.png', {
+      frameWidth: 16,
+      frameHeight: 16,
+    })
+    this.load.spritesheet('bush2', 'bush2.png', {
+      frameWidth: 48,
+      frameHeight: 32,
+    })
+    this.load.spritesheet('tree', 'tree.png', {
+      frameWidth: 48,
+      frameHeight: 48,
+    })
+    this.load.spritesheet('tree2', 'tree2.png', {
+      frameWidth: 32,
+      frameHeight: 48,
+    })
     this.load.image('sky-bg', 'sky-bg.png')
     this.load.image('sky-fg', 'sky-fg.png')
     this.load.image('stars', 'stars.png')

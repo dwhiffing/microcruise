@@ -74,9 +74,9 @@ export const REFERENCE_SPEED = 300
 export const ACCEL = 60
 export const BRAKE = 300
 export const COAST_DECEL = 30
-export const OFFROAD_MAX_SPEED = 80
-export const OFFROAD_DECEL = 300
-export const OFFROAD_ACCEL_FACTOR = 0.35
+export const OFFROAD_MAX_SPEED = 85
+export const OFFROAD_DECEL = 350
+export const OFFROAD_ACCEL_FACTOR = 0.4
 // max camera jitter (px) while off-road at speed
 export const OFFROAD_SHAKE = 0.2
 // camera jitter (px) while the tires are smoking (launch/braking)

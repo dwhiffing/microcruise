@@ -1,4 +1,5 @@
-import { GAME_WIDTH, ROAD_WIDTH } from '../constants'
+import { GAME_WIDTH } from '../constants'
+import { world } from '../world'
 import { multiplyColor, Road } from './Road'
 
 // rubber laid on tarmac, torn turf when the wheels are in the grass
@@ -9,9 +10,7 @@ const DIRT_SKID_COLOR = 0x5b3a24
 // wheels at the stamp point, front wheels a car-length ahead on a
 // slightly narrower track
 const WHEEL_WORLD = 6.6
-const WHEEL_LANE = WHEEL_WORLD / ROAD_WIDTH
 const FRONT_WHEEL_WORLD = 5.5
-const FRONT_WHEEL_LANE = FRONT_WHEEL_WORLD / ROAD_WIDTH
 const FRONT_AXLE_Z = 9
 // the front axle swings sideways with the wheel: this many world units
 // at full steer lock, or a fixed amount while drifting — both signed
@@ -80,22 +79,26 @@ export class SkidMarks {
     driftDir = 0,
   ) {
     const now = this.scene.time.now
+    // world-unit geometry to lane units at the road's CURRENT width, so
+    // the spread stays glued to the car as levels reshape the road
+    const wheelLane = WHEEL_WORLD / world.roadWidth
+    const frontWheelLane = FRONT_WHEEL_WORLD / world.roadWidth
     const frontShift =
       (driftDir !== 0
         ? driftDir * FRONT_DRIFT_OFFSET
-        : steer * FRONT_STEER_OFFSET) / ROAD_WIDTH
+        : steer * FRONT_STEER_OFFSET) / world.roadWidth
     const frontLane = lane + frontShift
     const wheels = [
-      { z, lane: lane - WHEEL_LANE, width: MARK_WORLD_WIDTH },
-      { z, lane: lane + WHEEL_LANE, width: MARK_WORLD_WIDTH },
+      { z, lane: lane - wheelLane, width: MARK_WORLD_WIDTH },
+      { z, lane: lane + wheelLane, width: MARK_WORLD_WIDTH },
       {
         z: z + FRONT_AXLE_Z,
-        lane: frontLane - FRONT_WHEEL_LANE,
+        lane: frontLane - frontWheelLane,
         width: FRONT_MARK_WORLD_WIDTH,
       },
       {
         z: z + FRONT_AXLE_Z,
-        lane: frontLane + FRONT_WHEEL_LANE,
+        lane: frontLane + frontWheelLane,
         width: FRONT_MARK_WORLD_WIDTH,
       },
     ]

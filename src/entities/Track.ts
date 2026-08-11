@@ -39,6 +39,14 @@ const easeInOut = (a: number, b: number, p: number) =>
 // Road owns turning them into pixels.
 export class Track {
   segments: Segment[] = []
+  // level-driven generation profile: how sharp bends are, how often an
+  // eligible section bends at all, and how long straights run. Applies
+  // to newly generated track only — the road already laid is untouched
+  profile = {
+    turnStrength: 1,
+    curveChance: 1,
+    straightLen: [30, 70] as [number, number],
+  }
   private firstIndex = 0
   private genY = 0
   private lastCurve = 0
@@ -147,15 +155,21 @@ export class Track {
   // alternate; hills are rolled independently so all combinations occur.
   private addSection() {
     // curved and straight sections alternate: after a zero-curve section,
-    // this one bends
+    // this one may bend (the profile's curveChance can keep it straight
+    // instead, stringing straights together on low-frequency levels)
     let curve = 0
-    const isCurve = this.lastCurve === 0
+    const isCurve =
+      this.lastCurve === 0 && Math.random() < this.profile.curveChance
     if (isCurve) {
-      // curve sharpness: 50% gentle, 25% medium, 25% sharp
+      // curve sharpness: 50% gentle, 25% medium, 25% sharp, scaled by
+      // the level's turn strength
       const roll = Math.random()
       const [lo, hi] =
         roll < 0.5 ? [0.1, 0.2] : roll < 0.75 ? [0.2, 0.4] : [0.4, 0.7]
-      curve = (Math.random() < 0.5 ? -1 : 1) * (lo + Math.random() * (hi - lo))
+      curve =
+        (Math.random() < 0.5 ? -1 : 1) *
+        (lo + Math.random() * (hi - lo)) *
+        this.profile.turnStrength
       if (Math.abs(curve) >= BIG_TURN_THRESHOLD) {
         // sharp enough for warning signs: flag where the bend begins
         const z = (this.firstIndex + this.segments.length) * SEGMENT_LENGTH
@@ -169,11 +183,13 @@ export class Track {
         ? (Math.random() < 0.5 ? -1 : 1) * (30 + Math.random() * 50)
         : 0
 
-    // straights run long and plain; curves ease in, hold, and ease out
+    // straights run long and plain (length from the level's range);
+    // curves ease in, hold, and ease out
+    const [straightMin, straightMax] = this.profile.straightLen
     const enter = isCurve ? 8 + Math.floor(Math.random() * 10) : 0
     const hold = isCurve
       ? 16 + Math.floor(Math.random() * 18)
-      : 30 + Math.floor(Math.random() * 40)
+      : straightMin + Math.floor(Math.random() * (straightMax - straightMin))
     const leave = isCurve ? 8 + Math.floor(Math.random() * 10) : 0
     const total = enter + hold + leave
 

@@ -1,4 +1,4 @@
-import { LANE_SCALE } from '../constants'
+import { laneScale, world } from '../world'
 import { Road } from './Road'
 import { RoadObject } from './RoadObject'
 
@@ -41,6 +41,29 @@ export interface DecalSpec {
   scaleExponent?: number
   minScale?: number
   maxScale?: number
+  // themed art swaps, keyed by the level's scenery theme (see
+  // world.sceneryTheme): the variant's sheet replaces the base one on
+  // newly spawned decals. Recolours that share the base sheet's layout
+  // only name a texture; reshaped art brings its own measured frames
+  // and physical size. Everything else (weight, band, collision,
+  // scaling) is inherited from the base decal
+  variants?: Record<string, DecalVariant>
+}
+
+export interface DecalVariant {
+  texture: string
+  worldWidth?: number
+  sizeFrames?: { frame: number; width: number; yOffset?: number }[]
+  // overrides the base decal's scaling for this variant only (e.g. a
+  // reshaped tree that looms differently than the one it replaces)
+  scaleExponent?: number
+  minScale?: number
+  maxScale?: number
+  // overrides the base decal's spawn weight and lateral band for this
+  // theme only (e.g. the snow drift spawning more often, tucked closer
+  // to the road than the bush it replaces)
+  weight?: number
+  dist?: [number, number]
 }
 
 export const DECALS: DecalSpec[] = [
@@ -56,11 +79,17 @@ export const DECALS: DecalSpec[] = [
       { frame: 4, width: 3, yOffset: 7 },
       { frame: 5, width: 1, yOffset: 7 },
     ],
+    // straight recolours of the base sheet
+    variants: {
+      desert: { texture: 'desert-bush' },
+      snow: { texture: 'snow-bush' },
+    },
   },
   {
     texture: 'bush2',
     weight: 4,
     worldWidth: 32,
+    dist: [2, 2.5],
     sizeFrames: [
       { frame: 0, width: 40, yOffset: 3 },
       { frame: 1, width: 29, yOffset: 6 },
@@ -70,6 +99,25 @@ export const DECALS: DecalSpec[] = [
       { frame: 5, width: 5, yOffset: 14 },
       { frame: 6, width: 3, yOffset: 15 },
     ],
+    variants: {
+      // recolour of the base sheet
+      desert: { texture: 'desert-bush2' },
+      // its own smaller drift shape (18x23 frames)
+      snow: {
+        texture: 'snow-bush2',
+        worldWidth: 14,
+        scaleExponent: 0.35,
+        weight: 0.25,
+        sizeFrames: [
+          { frame: 0, width: 18 },
+          { frame: 1, width: 14, yOffset: 2 },
+          { frame: 2, width: 11, yOffset: 5 },
+          { frame: 3, width: 8, yOffset: 8 },
+          { frame: 4, width: 5, yOffset: 9 },
+          { frame: 5, width: 3, yOffset: 10 },
+        ],
+      },
+    },
   },
   {
     texture: 'tree',
@@ -78,7 +126,7 @@ export const DECALS: DecalSpec[] = [
     // trees sit a little farther back so their canopies don't crowd the
     // shoulder
     // the trunk is solid
-    collide: { z: 10, lane: 0.15 * LANE_SCALE },
+    collide: { z: 10, lane: 0.15 },
     scaleExponent: 1.1,
     sizeFrames: [
       { frame: 0, width: 46 },
@@ -93,12 +141,48 @@ export const DECALS: DecalSpec[] = [
       { frame: 9, width: 2, yOffset: 21 },
       { frame: 10, width: 2, yOffset: 22 },
     ],
+    variants: {
+      // cactus (48x48 frames) — physically narrower than the oak, so
+      // worldWidth keeps the near-frame ratio (38/46 of the base art)
+      desert: {
+        texture: 'desert-tree',
+        worldWidth: 37,
+        scaleExponent: 0.7,
+        sizeFrames: [
+          { frame: 0, width: 38, yOffset: 1 },
+          { frame: 1, width: 29, yOffset: 5 },
+          { frame: 2, width: 24, yOffset: 10 },
+          { frame: 3, width: 18, yOffset: 13 },
+          { frame: 4, width: 14, yOffset: 16 },
+          { frame: 5, width: 10, yOffset: 18 },
+          { frame: 6, width: 5, yOffset: 20 },
+          { frame: 7, width: 3, yOffset: 21 },
+        ],
+      },
+      // tall skinny pine (32x64 frames)
+      snow: {
+        texture: 'snow-tree',
+        worldWidth: 27,
+        scaleExponent: 0.7,
+        sizeFrames: [
+          { frame: 0, width: 28, yOffset: 4 },
+          { frame: 1, width: 23, yOffset: 9 },
+          { frame: 2, width: 20, yOffset: 12 },
+          { frame: 3, width: 15, yOffset: 17 },
+          { frame: 4, width: 10, yOffset: 21 },
+          { frame: 5, width: 7, yOffset: 24 },
+          { frame: 6, width: 4, yOffset: 26 },
+          { frame: 7, width: 3, yOffset: 28 },
+          { frame: 8, width: 3, yOffset: 30 },
+        ],
+      },
+    },
   },
   {
     texture: 'tree2',
     weight: 1,
     worldWidth: 30,
-    collide: { z: 10, lane: 0.15 * LANE_SCALE },
+    collide: { z: 10, lane: 0.15 },
     scaleExponent: 1.1,
     sizeFrames: [
       { frame: 0, width: 28, yOffset: 2 },
@@ -111,6 +195,40 @@ export const DECALS: DecalSpec[] = [
       { frame: 7, width: 3, yOffset: 20 },
       { frame: 8, width: 1, yOffset: 21 },
     ],
+    variants: {
+      // small cactus (32x32 frames)
+      desert: {
+        texture: 'desert-tree2',
+        worldWidth: 19,
+        dist: [2, 2.5],
+        scaleExponent: 0.6,
+        sizeFrames: [
+          { frame: 0, width: 18, yOffset: 3 },
+          { frame: 1, width: 14, yOffset: 5 },
+          { frame: 2, width: 9, yOffset: 7 },
+          { frame: 3, width: 8, yOffset: 9 },
+          { frame: 4, width: 4, yOffset: 12 },
+          { frame: 5, width: 3, yOffset: 14 },
+          { frame: 6, width: 2, yOffset: 15 },
+        ],
+      },
+      // second pine shape (32x64 frames)
+      snow: {
+        texture: 'snow-tree2',
+        worldWidth: 29,
+        scaleExponent: 0.8,
+        sizeFrames: [
+          { frame: 0, width: 27, yOffset: 5 },
+          { frame: 1, width: 20, yOffset: 14 },
+          { frame: 2, width: 15, yOffset: 19 },
+          { frame: 3, width: 10, yOffset: 24 },
+          { frame: 4, width: 7, yOffset: 26 },
+          { frame: 5, width: 5, yOffset: 28 },
+          { frame: 6, width: 2, yOffset: 30 },
+          { frame: 7, width: 2, yOffset: 31 },
+        ],
+      },
+    },
   },
 ]
 
@@ -126,10 +244,17 @@ export class Scenery {
     this.scene = scene
   }
 
+  // weight of a decal under the current theme: a variant's own weight
+  // overrides its base decal's for spawn-frequency purposes
+  private weightOf(d: DecalSpec): number {
+    return d.variants?.[world.sceneryTheme]?.weight ?? d.weight
+  }
+
   private pick(): DecalSpec {
-    let roll = Math.random() * DECALS.reduce((sum, d) => sum + d.weight, 0)
+    let roll =
+      Math.random() * DECALS.reduce((sum, d) => sum + this.weightOf(d), 0)
     for (const d of DECALS) {
-      roll -= d.weight
+      roll -= this.weightOf(d)
       if (roll <= 0) return d
     }
     return DECALS[DECALS.length - 1]
@@ -140,16 +265,21 @@ export class Scenery {
     if (this.nextZ < position) this.nextZ = position
     while (this.nextZ < position + SPAWN_AHEAD) {
       const spec = this.pick()
+      // the level's themed art, where the decal has it; base sheet
+      // otherwise. Already-planted decals keep whatever they spawned as
+      const variant = spec.variants?.[world.sceneryTheme]
+      const texture = variant?.texture ?? spec.texture
+      const sizeFrames = variant?.sizeFrames ?? spec.sizeFrames
       const side = Math.random() < 0.5 ? -1 : 1
-      const [min, max] = spec.dist ?? [DIST_MIN, DIST_MAX]
+      const [min, max] = variant?.dist ?? spec.dist ?? [DIST_MIN, DIST_MAX]
       const dist = min + Math.pow(Math.random(), DIST_BIAS) * (max - min)
       this.decals.push({
         spec,
-        obj: new RoadObject(this.scene, spec.texture, this.nextZ, side * dist, {
-          worldWidth: spec.worldWidth,
-          minScale: spec.minScale ?? 0,
-          maxScale: spec.maxScale ?? 1,
-          scaleExponent: spec.scaleExponent ?? 0.8,
+        obj: new RoadObject(this.scene, texture, this.nextZ, side * dist, {
+          worldWidth: variant?.worldWidth ?? spec.worldWidth,
+          minScale: variant?.minScale ?? spec.minScale ?? 0,
+          maxScale: variant?.maxScale ?? spec.maxScale ?? 1,
+          scaleExponent: variant?.scaleExponent ?? spec.scaleExponent ?? 0.8,
           // free variety
           flipX: Math.random() < 0.5,
           // the crest-occlusion flag is unreliable for static objects
@@ -164,10 +294,10 @@ export class Scenery {
                 // stays planted at every scale
                 originY:
                   1 -
-                  (spec.sizeFrames[0].yOffset ?? 0) /
-                    this.scene.textures.get(spec.texture).get(0).height,
+                  (sizeFrames[0].yOffset ?? 0) /
+                    this.scene.textures.get(texture).get(0).height,
               }
-            : { sizeFrames: spec.sizeFrames }),
+            : { sizeFrames }),
         }),
       })
       this.nextZ += INTERVAL * (0.5 + Math.random())
@@ -182,13 +312,19 @@ export class Scenery {
     })
   }
 
-  // every solid decal's box, for the scene's collision pass
+  // every solid decal's box, for the scene's collision pass; lane
+  // half-widths scale with the road so the boxes stay physically sized
   forEachCollider(
     cb: (z: number, lane: number, halfZ: number, halfLane: number) => void,
   ) {
     for (const { obj, spec } of this.decals) {
       if (spec.collide)
-        cb(obj.z, obj.laneOffset, spec.collide.z, spec.collide.lane)
+        cb(
+          obj.z,
+          obj.laneOffset,
+          spec.collide.z,
+          spec.collide.lane * laneScale(),
+        )
     }
   }
 }

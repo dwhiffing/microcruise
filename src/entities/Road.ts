@@ -10,7 +10,6 @@ import {
   HORIZON_Y,
   LANES,
   PLAYER_Z,
-  ROAD_WIDTH,
   RUMBLE_LENGTH,
   SEGMENT_LENGTH,
   SKY_BG_FACTOR,
@@ -18,6 +17,7 @@ import {
   SKY_PHASES,
   STAR_FADE_EXP,
 } from '../constants'
+import { world } from '../world'
 import { Track, TurnWarning } from './Track'
 
 const lerp = (a: number, b: number, p: number) => a + (b - a) * p
@@ -54,6 +54,8 @@ export class Road {
   private stars: Phaser.GameObjects.TileSprite
   private skyBg: Phaser.GameObjects.TileSprite
   private skyFg: Phaser.GameObjects.TileSprite
+  // level theming: the skyline sheet the level currently wants
+  private skyFgTexture = 'sky-fg'
   private graphics: Phaser.GameObjects.Graphics
   private track = new Track()
   // seconds into the current day/night cycle
@@ -65,7 +67,11 @@ export class Road {
   // even while gameplay is paused (e.g. the reset fast-forward)
   onWorldTint?: (tint: number) => void
   private dayTween?: Phaser.Tweens.Tween
-  // COLORS with worldTint pre-multiplied in, used for the road/grass fills
+  // the level's ground palette (COLORS with theme overrides blended in);
+  // the day/night multiply applies on top of these each frame
+  private baseColors = { ...COLORS }
+  private colorTween?: Phaser.Tweens.Tween
+  // baseColors with worldTint pre-multiplied in, used for the fills
   private palette = { ...COLORS }
   // per-frame camera state, cached by draw() for project()
   private frame = 0
@@ -82,16 +88,24 @@ export class Road {
     const skyHeight = scene.textures.get('sky-bg').get(0).height
     // starfield sits behind the gradient and skyline, showing in the sky
     // revealed above them; it only fades in through the night phase
+    // explicit depths below everything else (road graphics and every
+    // RoadObject/car sit at depth >= 0): RoadObjects call setDepth every
+    // frame, which forces a full display-list resort keyed only on
+    // depth, so relying on add-order among depth-0 objects (the old
+    // approach) breaks the moment anything else calls setDepth
     this.stars = scene.add
       .tileSprite(0, 0, GAME_WIDTH, skyHeight, 'stars')
       .setOrigin(0, 0)
       .setAlpha(0)
+      .setDepth(-3)
     this.skyBg = scene.add
       .tileSprite(0, 0, GAME_WIDTH, skyHeight, 'sky-bg')
       .setOrigin(0, 0)
+      .setDepth(-2)
     this.skyFg = scene.add
       .tileSprite(0, 0, GAME_WIDTH, skyHeight, 'sky-fg')
       .setOrigin(0, 0)
+      .setDepth(-1)
 
     this.graphics = scene.add.graphics()
     this.reset()
@@ -119,6 +133,76 @@ export class Road {
 
   drainTurnWarnings(): TurnWarning[] {
     return this.track.drainTurnWarnings()
+  }
+
+  // level theming: blend the ground palette toward the level's colours
+  // (unlisted keys return to the base COLORS) over `duration` ms — the
+  // terrain sweeps from grass to sand to snow instead of snapping
+  setLevelColors(target: Partial<typeof COLORS>, duration = 2000) {
+    this.colorTween?.stop()
+    const from = { ...this.baseColors }
+    const to = { ...COLORS, ...target }
+    if (duration <= 0) {
+      this.baseColors = to
+      this.updateDayCycle()
+      return
+    }
+    this.colorTween = this.scene.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration,
+      ease: 'Sine.easeInOut',
+      onUpdate: (tween) => {
+        const p = tween.getValue() ?? 1
+        for (const key of Object.keys(COLORS) as (keyof typeof COLORS)[]) {
+          this.baseColors[key] = lerpColor(from[key], to[key], p)
+        }
+      },
+    })
+  }
+
+  // level theming: swap the skyline silhouette to the level's sheet —
+  // the old one slides down out of view (behind the road), then the new
+  // one slides up into place from below, rather than crossfading
+  setSkyline(texture: string, duration = 8000) {
+    if (this.skyFgTexture === texture) return
+    this.skyFgTexture = texture
+    this.scene.tweens.killTweensOf(this.skyFg)
+    if (duration <= 0) {
+      this.skyFg.setTexture(texture)
+      this.skyFg.y = 0
+      return
+    }
+    const dropY = this.skyFg.height - 21
+    this.scene.tweens.add({
+      targets: this.skyFg,
+      y: dropY,
+      duration: duration / 2,
+      ease: 'Sine.easeIn',
+      onComplete: () => {
+        this.skyFg.setTexture(texture)
+        this.scene.tweens.add({
+          targets: this.skyFg,
+          y: 0,
+          duration: duration / 2,
+          ease: 'Sine.easeInOut',
+        })
+      },
+    })
+  }
+
+  // level progression: reshape how upcoming track generates (bend
+  // sharpness/frequency, straight lengths); already-laid road is kept
+  setGenProfile(profile: {
+    turnStrength: number
+    curveChance: number
+    straightLen: [number, number]
+  }) {
+    this.track.profile = {
+      turnStrength: profile.turnStrength,
+      curveChance: profile.curveChance,
+      straightLen: profile.straightLen,
+    }
   }
 
   // replace the road beyond the draw distance with a straightaway; returns
@@ -202,7 +286,7 @@ export class Road {
     // art's own interpolation glues them to it by construction. The near
     // edge gets the same near-plane clamp as draw(), keeping the chord
     // identical to the one the quad was drawn with.
-    const lane = laneOffset * ROAD_WIDTH
+    const lane = laneOffset * world.roadWidth
     const farBendX = next?.frame === this.frame ? next.bendX : seg.bendX
     let z1 = seg.index * SEGMENT_LENGTH - this.position
     const z2 = z1 + SEGMENT_LENGTH
@@ -263,11 +347,12 @@ export class Road {
     const starBlend = fromIndex === night ? 1 - p : toIndex === night ? p : 0
     this.stars.setAlpha(Math.pow(starBlend, STAR_FADE_EXP))
     this.skyBg.setTint(lerpColor(from.tint, to.tint, p))
+    this.skyFg.setTint(lerpColor(from.tint, to.tint, p))
     this.skyBg.y = lerp(from.drop, to.drop, p)
     this.scene.cameras.main.setBackgroundColor(lerpColor(from.bg, to.bg, p))
     this.worldTint = lerpColor(from.world, to.world, p)
     for (const key of Object.keys(COLORS) as (keyof typeof COLORS)[]) {
-      this.palette[key] = multiplyColor(COLORS[key], this.worldTint)
+      this.palette[key] = multiplyColor(this.baseColors[key], this.worldTint)
     }
     this.onWorldTint?.(this.worldTint)
   }
@@ -310,7 +395,7 @@ export class Road {
       ((position + PLAYER_Z) % SEGMENT_LENGTH) / SEGMENT_LENGTH
     this.frame++
     this.position = position
-    this.camX = playerX * ROAD_WIDTH
+    this.camX = playerX * world.roadWidth
     this.camY = lerp(playerSeg.y1, playerSeg.y2, playerPercent) + CAMERA_HEIGHT
   }
 
@@ -369,8 +454,8 @@ export class Road {
       const sy2 = HORIZON_Y - scale2 * (seg.y2 - this.camY) * halfH
       const sx1 = halfW + scale1 * cx1c * halfW
       const sx2 = halfW + scale2 * cx2 * halfW
-      const sw1 = scale1 * ROAD_WIDTH * halfW
-      const sw2 = scale2 * ROAD_WIDTH * halfW
+      const sw1 = scale1 * world.roadWidth * halfW
+      const sw2 = scale2 * world.roadWidth * halfW
 
       if (sy2 >= clipY || sy2 >= sy1) continue // hidden behind a nearer crest
 

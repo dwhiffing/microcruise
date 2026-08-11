@@ -39,6 +39,7 @@ export class UI {
   private gearManual: GameObjects.Sprite
   private gearAuto: GameObjects.Sprite
   private lastTimer = -1 // last value setTimer displayed
+  private zeroShownAt = 0 // when the clock hit 0 (ms timestamp)
   private timerFade?: Phaser.Tweens.Tween
   // every HUD element with its designed resting alpha, for the fade-in
   private hud: { obj: HudElement; alpha: number }[] = []
@@ -248,17 +249,9 @@ export class UI {
   setTimer(seconds: number) {
     if (seconds === this.lastTimer) return
     if (seconds === 0) {
-      this.timerFade = this.scene.tweens.add({
-        targets: [...this.timerDigits, ...this.timerShadows],
-        alpha: 0,
-        delay: 1000,
-        duration: 400,
-        onComplete: () => {
-          this.timerFade = undefined
-          this.timerDigits.forEach((digit) => digit.setVisible(false))
-          this.timerShadows.forEach((shadow) => shadow.setVisible(false))
-        },
-      })
+      // the 0 stays up while the car coasts to its stop — hideHud()
+      // starts the fade once the run actually ends
+      this.zeroShownAt = this.scene.time.now
     } else if (this.lastTimer === 0) {
       // refilled off zero (checkpoint rescue): cancel the pending fade
       this.timerFade?.stop()
@@ -416,9 +409,23 @@ export class UI {
   }
 
   hideHud() {
-    // a 0 on the clock owns its own exit — it holds for a beat and fades
-    // even when the run ends underneath it
-    if (!this.timerFade) {
+    // a 0 on the clock owns its own exit: it lingers until the car has
+    // stopped (which is when this runs), holds at least a second total
+    // on screen, then fades
+    if (this.lastTimer === 0 && !this.timerFade) {
+      const held = this.scene.time.now - this.zeroShownAt
+      this.timerFade = this.scene.tweens.add({
+        targets: [...this.timerDigits, ...this.timerShadows],
+        alpha: 0,
+        delay: Math.max(0, 1000 - held),
+        duration: 400,
+        onComplete: () => {
+          this.timerFade = undefined
+          this.timerDigits.forEach((digit) => digit.setVisible(false))
+          this.timerShadows.forEach((shadow) => shadow.setVisible(false))
+        },
+      })
+    } else if (!this.timerFade) {
       this.timerDigits.forEach((digit) => digit.setVisible(false))
       this.timerShadows.forEach((shadow) => shadow.setVisible(false))
     }

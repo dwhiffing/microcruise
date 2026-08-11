@@ -1,4 +1,5 @@
-import { CAR_COLLIDE_LANE, LANE_SCALE, ROAD_WIDTH } from '../constants'
+import { CAR_COLLIDE_LANE } from '../constants'
+import { laneScale, world } from '../world'
 import { Road } from './Road'
 import { RoadObject } from './RoadObject'
 
@@ -121,7 +122,7 @@ export const VEHICLES: VehicleSpec[] = [
     texture: 'motorcycle',
     worldWidth: 12,
     hasLean: false,
-    collideLane: 0.12 * LANE_SCALE,
+    collideLane: 0.12,
     speedFactor: 0.8,
     scaleExponent: 0.8,
     damageFactor: 0.4,
@@ -140,8 +141,21 @@ export const VEHICLES: VehicleSpec[] = [
   },
 ]
 
-const randomVehicle = () =>
-  VEHICLES[Math.floor(Math.random() * VEHICLES.length)]
+// weighted pick from the current level's traffic mix (world.trafficMix,
+// keyed by texture); types the level doesn't list never spawn
+const randomVehicle = () => {
+  const total = VEHICLES.reduce(
+    (sum, v) => sum + (world.trafficMix[v.texture] ?? 0),
+    0,
+  )
+  if (total <= 0) return VEHICLES[0]
+  let roll = Math.random() * total
+  for (const v of VEHICLES) {
+    roll -= world.trafficMix[v.texture] ?? 0
+    if (roll <= 0) return v
+  }
+  return VEHICLES[0]
+}
 
 // another vehicle driving along the track: it advances its own z each
 // frame and rides a fixed lane offset, so the shared road projection
@@ -174,9 +188,10 @@ export class NpcCar {
     this.setVehicle(randomVehicle())
   }
 
-  // collision half-width across the road, per vehicle type
+  // collision half-width across the road, per vehicle type, physically
+  // constant as the road narrows
   get collideLane() {
-    return this.spec.collideLane ?? CAR_COLLIDE_LANE
+    return (this.spec.collideLane ?? CAR_COLLIDE_LANE) * laneScale()
   }
 
   // how hard hitting this vehicle punishes the player, per vehicle type
@@ -196,7 +211,7 @@ export class NpcCar {
   fall(dir: number, shove: number) {
     this.fallen = true
     this.speed = Math.max(this.speed, shove)
-    this.laneOffset += (dir * FALL_X_OFFSET) / ROAD_WIDTH
+    this.laneOffset += (dir * FALL_X_OFFSET) / world.roadWidth
     this.obj.destroy()
     this.obj = new RoadObject(
       this.scene,

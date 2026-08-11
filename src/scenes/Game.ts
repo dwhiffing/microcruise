@@ -11,8 +11,8 @@ import {
   CAR_COLLIDE_Z,
   CENTRIFUGAL,
   CHECKPOINT_BONUS,
-  CHECKPOINT_INTERVAL,
   CHECKPOINT_REPAIR,
+  CHECKPOINTS_PER_LEVEL,
   COAST_DECEL,
   COIN_COLLIDE_LANE,
   COIN_COLLIDE_Z,
@@ -23,7 +23,7 @@ import {
   COLLISION_DAMAGE,
   DAMAGE_COOLDOWN,
   DRAW_SEGMENTS,
-  DRIFT_ACCEL,
+  DRIFT_ACCEL_FACTOR,
   DRIFT_COUNTERSTEER_TIME,
   DRIFT_GRIP,
   DRIFT_MAX_TIME,
@@ -36,8 +36,8 @@ import {
   GEAR_MAX,
   HORIZON_Y,
   IMPACT_SKID_TIME,
-  LANE_SCALE,
   LANES,
+  LEVELS,
   MAX_HEALTH,
   MAX_SCORE,
   MAX_SPEED,
@@ -47,6 +47,7 @@ import {
   OFFROAD_MAX_SPEED,
   OFFROAD_SHAKE,
   OFFROAD_SHAKE_MIN_SPEED,
+  OUT_OF_TIME_DECEL_FACTOR,
   PLAYER_Z,
   RACE_TIME,
   REFERENCE_SPEED,
@@ -76,6 +77,7 @@ import { RoadObject } from '../entities/RoadObject'
 import { Scenery } from '../entities/Scenery'
 import { SkidMarks } from '../entities/SkidMarks'
 import { UI } from '../entities/UI'
+import { laneScale, world } from '../world'
 
 // turn-sign.png layout: 9 frames, largest first, each 2px narrower than
 // the last down to a final 1px sliver — pre-drawn distance sizes so signs
@@ -111,7 +113,10 @@ export class Game extends Scene {
   private scenery!: Scenery
   private turnSigns: RoadObject[] = []
   private checkpoints: Checkpoint[] = []
-  private nextCheckpointZ = CHECKPOINT_INTERVAL
+  private nextCheckpointZ = LEVELS[0].checkpointInterval
+  private checkpointInterval = LEVELS[0].checkpointInterval
+  private checkpointsCrossed = 0 // this run; every 5th advances the level
+  private level = 0 // index into LEVELS
   private coins: Coin[] = []
   private nextCoinZ = 0
   private coinScore = 0 // points banked from coins this run
@@ -148,6 +153,38 @@ export class Game extends Scene {
     super('Game')
   }
 
+  // the level-scaled speed cap on the player's engine
+  private get maxSpeed() {
+    return MAX_SPEED * world.maxSpeedFactor
+  }
+
+  // progression: apply a level's world parameters. The road width eases
+  // over a couple of seconds; track generation, traffic mix, checkpoint
+  // spacing, and the speed cap apply to everything new from here —
+  // whatever is already on the road is untouched
+  private setLevel(index: number, snap = false, duration = 2000) {
+    this.level = index
+    const spec = LEVELS[index]
+    this.tweens.killTweensOf(world)
+    if (snap) {
+      world.roadWidth = spec.roadWidth
+    } else {
+      this.tweens.add({
+        targets: world,
+        roadWidth: spec.roadWidth,
+        duration,
+        ease: 'Sine.easeInOut',
+      })
+    }
+    world.trafficMix = spec.trafficMix
+    world.maxSpeedFactor = spec.maxSpeedFactor
+    world.sceneryTheme = spec.scenery ?? ''
+    this.checkpointInterval = spec.checkpointInterval
+    this.road.setGenProfile(spec)
+    this.road.setLevelColors(spec.colors ?? {}, snap ? 0 : duration * 2.25)
+    this.road.setSkyline(spec.skyFg ?? 'sky-fg', snap ? 0 : duration * 2.25)
+  }
+
   private get score() {
     return Phaser.Math.Clamp(
       Math.floor((this.distance - this.runStartDistance) / 1000) +
@@ -171,6 +208,7 @@ export class Game extends Scene {
     })
 
     this.road = new Road(this)
+    this.setLevel(0, true)
     this.scenery = new Scenery(this)
     this.skidMarks = new SkidMarks(this)
     this.car = new Car(this)
@@ -222,6 +260,13 @@ export class Game extends Scene {
     // debug: set the clock to 15 seconds
     this.input.keyboard!.on('keydown-B', () => {
       this.timeLeft = 15
+    })
+
+    // debug: jump straight to the next level
+    this.input.keyboard!.on('keydown-N', () => {
+      const next = Math.min(LEVELS.length - 1, this.level + 1)
+      this.checkpointsCrossed = next * CHECKPOINTS_PER_LEVEL
+      if (next !== this.level) this.setLevel(next)
     })
 
     // debug: 1-4 drops a specific vehicle type onto the road ahead by
@@ -467,7 +512,9 @@ export class Game extends Scene {
     this.outOfTime = false
     this.ui.setTimer(RACE_TIME)
     this.runStartDistance = this.distance
-    this.nextCheckpointZ = this.distance + CHECKPOINT_INTERVAL
+    this.checkpointsCrossed = 0
+    if (this.level !== 0) this.setLevel(0)
+    this.nextCheckpointZ = this.distance + this.checkpointInterval
     this.checkpoints.forEach((gantry) => gantry.destroy())
     this.checkpoints = []
     this.coinScore = 0
@@ -513,6 +560,13 @@ export class Game extends Scene {
     this.ui.hideHud()
     this.car.exit()
     this.music.pause()
+
+    // reset the world back to level 1 right away, so the road/scenery/
+    // skyline are already easing back to grass through the game-over
+    // beat and the menu cruise, instead of snapping once a new run
+    // begins. Faster than the in-run level transitions
+    this.checkpointsCrossed = 0
+    if (this.level !== 0) this.setLevel(0, false, 1500)
 
     const score = this.score
     if (score > this.highScore) {
@@ -639,7 +693,7 @@ export class Game extends Scene {
     // 25 mph), or scrubbing speed off under braking — smoke on tarmac,
     // dirt when off in the grass
     const throttle = !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
-    const braking = !this.outOfTime && this.keyC.isDown && this.speed > 30
+    const braking = this.keyC.isDown && this.speed > 30
     const tiresSmoking =
       (throttle && mph < 25 && mph > 1) ||
       braking ||
@@ -649,12 +703,17 @@ export class Game extends Scene {
     const wheelsSpinning = tiresSmoking || (offRoad && mph > 0)
     if (wheelsSpinning) this.car.emitTireSmoke(offRoad)
     // taillights light up whenever the brake is held
-    this.car.setBraking(!this.outOfTime && this.keyC.isDown)
+    // taillights also light while the out-of-time auto-brake drags the
+    // car to its stop
+    this.car.setBraking(this.keyC.isDown)
     // RPM follows an exponential curve of speed against the gear's max:
     // an upshift drops the revs to mid-band, then they surge to redline
     this.ui.setGearHud(
       this.gear,
-      Math.pow(this.speed / (GEAR_MAX[this.gear - 1] * MAX_SPEED), RPM_CURVE),
+      Math.pow(
+        this.speed / (GEAR_MAX[this.gear - 1] * this.maxSpeed),
+        RPM_CURVE,
+      ),
       this.score,
     )
     this.updatePlayerX(dt)
@@ -734,7 +793,7 @@ export class Game extends Scene {
   // transmission picked at the start menu
   private updateGears() {
     if (this.autoShift) {
-      const gearMax = GEAR_MAX[this.gear - 1] * MAX_SPEED
+      const gearMax = GEAR_MAX[this.gear - 1] * this.maxSpeed
       if (
         this.gear < 6 &&
         this.speed >= gearMax - 0.5 &&
@@ -746,7 +805,7 @@ export class Game extends Scene {
       // 0.9 hysteresis keeps it from bouncing between gears
       while (
         this.gear > 1 &&
-        this.speed < GEAR_MAX[this.gear - 2] * MAX_SPEED * 0.9
+        this.speed < GEAR_MAX[this.gear - 2] * this.maxSpeed * 0.9
       ) {
         this.gear--
       }
@@ -765,13 +824,18 @@ export class Game extends Scene {
     // each gear tops out at its own speed, with low gears accelerating
     // hardest; above the cap (after a downshift) the engine drags speed
     // back down toward it
-    const gearMax = GEAR_MAX[this.gear - 1] * MAX_SPEED
+    const gearMax = GEAR_MAX[this.gear - 1] * this.maxSpeed
     const gearAccel = ACCEL * GEAR_ACCEL[this.gear - 1]
     if (this.speed > gearMax) {
       this.speed = Math.max(gearMax, this.speed - ENGINE_BRAKE * dt)
     } else if (this.driftDir !== 0) {
-      // drifting: the boost overrides throttle and brake
-      this.speed += DRIFT_ACCEL * (offRoad ? OFFROAD_ACCEL_FACTOR : 1) * dt
+      // drifting: the tires are sideways, so the engine only puts down a
+      // fraction of its normal pull (throttle/brake keys are overridden)
+      this.speed +=
+        gearAccel *
+        DRIFT_ACCEL_FACTOR *
+        (offRoad ? OFFROAD_ACCEL_FACTOR : 1) *
+        dt
       this.speed = Math.min(this.speed, gearMax)
     } else {
       const throttle = !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
@@ -786,7 +850,9 @@ export class Game extends Scene {
         }
         if (brake) this.speed -= BRAKE * dt
       } else {
-        this.speed -= COAST_DECEL * dt
+        // out of time, the car drags itself down harder than a coast
+        this.speed -=
+          COAST_DECEL * (this.outOfTime ? OUT_OF_TIME_DECEL_FACTOR : 1) * dt
       }
     }
     if (offRoad && this.speed > OFFROAD_MAX_SPEED) {
@@ -794,7 +860,7 @@ export class Game extends Scene {
     }
     // climbing bleeds speed, dropping returns it
     this.speed -= this.road.slopeAt(this.distance + PLAYER_Z) * SLOPE_DRAG * dt
-    this.speed = Phaser.Math.Clamp(this.speed, 0, MAX_SPEED)
+    this.speed = Phaser.Math.Clamp(this.speed, 0, this.maxSpeed)
   }
 
   // while held, the wheel covers a fraction of its REMAINING travel each
@@ -823,21 +889,21 @@ export class Game extends Scene {
   private updatePlayerX(dt: number) {
     const speedFactor = this.speed / REFERENCE_SPEED
     const steerAuthority = Math.min(speedFactor, 1.2)
-    // every lateral force is scaled by LANE_SCALE: playerX is a fraction
+    // every lateral force is scaled by laneScale(): playerX is a fraction
     // of the road's half-width, so without it a wider road would make the
     // same physical motion cover more ground
     this.playerX +=
-      this.steerValue * STEER_SPEED * steerAuthority * LANE_SCALE * dt
+      this.steerValue * STEER_SPEED * steerAuthority * laneScale() * dt
     // drifting slides with the curve: only a fraction of the pull applies
     this.playerX -=
       this.road.curveAt(this.distance + PLAYER_Z) *
       CENTRIFUGAL *
       (this.driftDir !== 0 ? DRIFT_GRIP : 1) *
       speedFactor *
-      LANE_SCALE *
+      laneScale() *
       dt
     // collision knockback: a decaying lateral shove away from the hit
-    this.playerX += this.bounceVx * LANE_SCALE * dt
+    this.playerX += this.bounceVx * laneScale() * dt
     this.bounceVx *= Math.max(0, 1 - 6 * dt)
     this.playerX = Phaser.Math.Clamp(this.playerX, -5, 5)
   }
@@ -883,7 +949,7 @@ export class Game extends Scene {
   private updateCheckpoints() {
     if (this.nextCheckpointZ - this.distance < 2000) {
       this.checkpoints.push(new Checkpoint(this, this.nextCheckpointZ))
-      this.nextCheckpointZ += CHECKPOINT_INTERVAL
+      this.nextCheckpointZ += this.checkpointInterval
     }
     this.checkpoints = this.checkpoints.filter((gantry) => {
       if (gantry.z < this.distance) {
@@ -892,6 +958,14 @@ export class Game extends Scene {
         this.car.setHealth(this.health)
         this.car.onCheckpoint()
         this.ui.showTimeBonus(CHECKPOINT_BONUS)
+        // progression: every CHECKPOINTS_PER_LEVEL crossings step up a
+        // level, clamped at the last one
+        this.checkpointsCrossed++
+        const next = Math.min(
+          LEVELS.length - 1,
+          Math.floor(this.checkpointsCrossed / CHECKPOINTS_PER_LEVEL),
+        )
+        if (next !== this.level) this.setLevel(next)
         this.sound.play('coin-hit', { volume: 0.5 })
         gantry.destroy()
         return false
@@ -925,7 +999,8 @@ export class Game extends Scene {
       if (
         collect &&
         Math.abs(coin.z - (this.distance + PLAYER_Z)) < COIN_COLLIDE_Z &&
-        Math.abs(this.playerX - coin.laneOffset) < COIN_COLLIDE_LANE
+        Math.abs(this.playerX - coin.laneOffset) <
+          COIN_COLLIDE_LANE * laneScale()
       ) {
         this.coinScore += COIN_POINTS
         this.sound.play('coin-hit', { volume: 0.5 })
@@ -973,7 +1048,7 @@ export class Game extends Scene {
         sign.z,
         sign.laneOffset,
         SIGN_COLLIDE_Z,
-        SIGN_COLLIDE_LANE,
+        SIGN_COLLIDE_LANE * laneScale(),
         0,
       )
     }

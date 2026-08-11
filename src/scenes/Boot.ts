@@ -79,8 +79,44 @@ export class Boot extends Scene {
       frameWidth: 32,
       frameHeight: 48,
     })
+    // desert/snow scenery variants — the recoloured bushes share the base
+    // grids, the themed trees are their own shapes with their own grids
+    this.load.spritesheet('desert-bush', 'desert-bush.png', {
+      frameWidth: 16,
+      frameHeight: 16,
+    })
+    this.load.spritesheet('snow-bush', 'snow-bush.png', {
+      frameWidth: 16,
+      frameHeight: 16,
+    })
+    this.load.spritesheet('desert-bush2', 'desert-bush2.png', {
+      frameWidth: 48,
+      frameHeight: 32,
+    })
+    this.load.spritesheet('snow-bush2', 'snow-bush2.png', {
+      frameWidth: 18,
+      frameHeight: 23,
+    })
+    this.load.spritesheet('desert-tree', 'desert-tree.png', {
+      frameWidth: 48,
+      frameHeight: 48,
+    })
+    this.load.spritesheet('snow-tree', 'snow-tree.png', {
+      frameWidth: 32,
+      frameHeight: 64,
+    })
+    this.load.spritesheet('desert-tree2', 'desert-tree2.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    })
+    this.load.spritesheet('snow-tree2', 'snow-tree2.png', {
+      frameWidth: 32,
+      frameHeight: 64,
+    })
     this.load.image('sky-bg', 'sky-bg.png')
     this.load.image('sky-fg', 'sky-fg.png')
+    this.load.image('desert-sky-fg', 'desert-sky-fg.png')
+    this.load.image('snow-sky-fg', 'snow-sky-fg.png')
     this.load.image('stars', 'stars.png')
     this.load.spritesheet('turn-sign', 'turn-sign.png', {
       frameWidth: 16,

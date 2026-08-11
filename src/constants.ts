@@ -15,11 +15,11 @@ export const CAMERA_DEPTH = 0.8
 // depth of the player car plane in front of the camera
 export const PLAYER_Z = CAMERA_HEIGHT * CAMERA_DEPTH
 
-// half-width of the road in world units
-export const ROAD_WIDTH = 45
+// the road's half-width is level-driven and lives in world.ts; lane-unit
+// sizes below are authored at this reference width and multiplied by
+// laneScale() at use, so physical sizes hold as the road narrows
 export const LANES = 3
 export const REFERENCE_ROAD_WIDTH = 60
-export const LANE_SCALE = REFERENCE_ROAD_WIDTH / ROAD_WIDTH
 
 // world-x bend added per segment^2 per unit of curve intensity
 export const CURVE_WORLD = 2.6
@@ -51,7 +51,7 @@ export const SKY_PHASES = [
   { tint: 0x4a5a8e, bg: 0x0b0e2a, drop: 24, world: 0x55628f }, // night
 ]
 
-export const MAX_SPEED = 800
+export const MAX_SPEED = 600
 // gears: each gear's top speed as a fraction of MAX_SPEED, and its
 // acceleration multiplier on ACCEL — low gears pull hard but run out fast
 export const GEAR_MAX = [0.18, 0.34, 0.5, 0.66, 0.83, 1]
@@ -67,13 +67,16 @@ export const RPM_CURVE = 3
 export const AUTO_SHIFT = true
 // what MAX_SPEED reads as on the speedometer: the gauge always spans
 // 0-215 mph no matter the internal top speed
-export const TOP_SPEED_MPH = 215
+export const TOP_SPEED_MPH = 200
 // speed at which steering/centrifugal reach nominal strength; forces keep
 // growing with real speed past it, so faster = harder to hold a curve
 export const REFERENCE_SPEED = 300
 export const ACCEL = 60
 export const BRAKE = 300
 export const COAST_DECEL = 30
+// with the clock at 0 the car drags itself down at this multiple of the
+// normal coast deceleration (the taillights light while it does)
+export const OUT_OF_TIME_DECEL_FACTOR = 3
 export const OFFROAD_MAX_SPEED = 85
 export const OFFROAD_DECEL = 350
 export const OFFROAD_ACCEL_FACTOR = 0.4
@@ -96,14 +99,14 @@ export const CENTRIFUGAL = 4.0
 export const SLOPE_DRAG = 120
 
 // drifting: tap brake while at least this fast with the wheel turned at
-// least this far to kick into a drift; while it lasts the car gains
-// DRIFT_ACCEL speed per second instead of normal throttle/brake, and the
+// least this far to kick into a drift; while it lasts the engine only
+// delivers DRIFT_ACCEL_FACTOR of its normal gear acceleration, and the
 // centrifugal pull is scaled by DRIFT_GRIP — the car slides with the
 // curve instead of being flung out, so drifts hold bends that are too
 // fast to steer through normally
 export const DRIFT_MIN_SPEED = 250
 export const DRIFT_MIN_STEER = 0.01
-export const DRIFT_ACCEL = 80
+export const DRIFT_ACCEL_FACTOR = 0.1
 export const DRIFT_GRIP = 0.5
 // a drift tolerates taps of countersteer: holding the opposite
 // direction for this many continuous seconds ends it; going this long
@@ -133,7 +136,7 @@ export const COIN_HOVER = 2
 // collection box, same convention as the collision boxes: length along
 // the track and half-width in lane units, physically constant
 export const COIN_COLLIDE_Z = 12
-export const COIN_COLLIDE_LANE = 0.25 * LANE_SCALE
+export const COIN_COLLIDE_LANE = 0.25
 
 // debug: skip the 3-2-1 countdown and start driving as soon as the car
 // pulls in
@@ -143,9 +146,8 @@ export const SKIP_COUNTDOWN = true
 export const RACE_TIME = 60
 // score (distance / 100) caps here
 export const MAX_SCORE = 9999
-// checkpoints: world units between them, seconds they award, and the most
-// the clock can hold (the display only has two digits)
-export const CHECKPOINT_INTERVAL = 10000
+// checkpoints: seconds they award and the most the clock can hold (the
+// display only has two digits). Spacing is level-driven (see LEVELS)
 export const CHECKPOINT_BONUS = 15
 export const MAX_TIME = 99
 // health restored when crossing a checkpoint (100 = full repair)
@@ -173,19 +175,95 @@ export const BURN_THRESHOLD = 30
 export const BURN_DPS = 1
 
 // collision box around a car: length along the track (world units) and
-// half-width across it (road-relative lane units, like playerX). The
-// LANE_SCALE keeps the physical box size fixed as ROAD_WIDTH changes
+// half-width across it (road-relative lane units, like playerX).
+// laneScale() keeps the physical box size fixed as the road narrows
 export const CAR_COLLIDE_Z = 15
-export const CAR_COLLIDE_LANE = 0.3 * LANE_SCALE
+export const CAR_COLLIDE_LANE = 0.3
 // signs are narrow static posts, so a smaller box
 export const SIGN_COLLIDE_Z = 10
-export const SIGN_COLLIDE_LANE = 0.15 * LANE_SCALE
+export const SIGN_COLLIDE_LANE = 0.15
 
 // while braking, these car-sprite colours are swapped (the taillights
 // light up): [from, to] pairs baked into a recoloured copy of the sheet
 export const BRAKE_LIGHT_SWAPS: [number, number][] = [
   [0xb42323, 0xff3b3b], // taillight red -> lit
   [0x6a1212, 0xb42323], // dark red shade -> brightens
+]
+
+// progression: the run advances one level every CHECKPOINTS_PER_LEVEL
+// checkpoints, clamping at the last level. Each level reshapes the world
+// — everything already on the road is untouched; new generation picks
+// the values up (road width eases over instead of snapping)
+export const CHECKPOINTS_PER_LEVEL = 5
+export interface LevelSpec {
+  name: string
+  // the road's half-width in world units (large = easy)
+  roadWidth: number
+  // multiplier on every generated bend's sharpness
+  turnStrength: number
+  // chance an eligible new section bends instead of running straight
+  curveChance: number
+  // length range (segments of SEGMENT_LENGTH) for straight sections
+  straightLen: [number, number]
+  // world units between checkpoint gantries
+  checkpointInterval: number
+  // relative spawn weights per vehicle texture (see VEHICLES); types not
+  // listed never spawn on that level
+  trafficMix: Record<string, number>
+  // fraction of MAX_SPEED the player's engine can reach
+  maxSpeedFactor: number
+  // ground palette overrides (keys of COLORS): the terrain beside the
+  // road recolours to the level's theme, blending over the transition.
+  // Omitted keys keep the base COLORS values
+  colors?: Partial<Record<'grass' | 'grassAlt', number>>
+  // skyline silhouette texture; omitted = the base 'sky-fg'. Crossfades
+  // over the level transition
+  skyFg?: string
+  // decal variant set for roadside scenery (see DECALS variants);
+  // omitted = the base grass sheets. Applies to newly spawned decals
+  scenery?: string
+}
+
+export const LEVELS: LevelSpec[] = [
+  {
+    // 1: grassland — wide and forgiving, light traffic, gentle bends
+    name: 'grass',
+    roadWidth: 60,
+    turnStrength: 0.7,
+    curveChance: 0.5,
+    straightLen: [40, 80],
+    checkpointInterval: 8000,
+    trafficMix: { motorcycle: 0.5, car2: 0.5 },
+    maxSpeedFactor: 0.7,
+  },
+  {
+    // 2: desert — tighter road, sharper turns, trucks join the flow
+    name: 'desert',
+    roadWidth: 45,
+    turnStrength: 1,
+    curveChance: 0.75,
+    straightLen: [25, 55],
+    checkpointInterval: 10000,
+    trafficMix: { motorcycle: 0.2, car2: 0.5, truck: 0.3 },
+    maxSpeedFactor: 0.85,
+    colors: { grass: 0xd7b98a, grassAlt: 0xc2a069 }, // beige sands
+    skyFg: 'desert-sky-fg',
+    scenery: 'desert',
+  },
+  {
+    // 3: snow — narrow, twisty, heavy traffic, full speed unlocked
+    name: 'snow',
+    roadWidth: 35,
+    turnStrength: 1.35,
+    curveChance: 1,
+    straightLen: [15, 35],
+    checkpointInterval: 12000,
+    trafficMix: { motorcycle: 0.1, car2: 0.3, truck: 0.4, semi: 0.2 },
+    maxSpeedFactor: 1,
+    colors: { grass: 0xffffff, grassAlt: 0xb8dcf2 }, // snow and ice
+    skyFg: 'snow-sky-fg',
+    scenery: 'snow',
+  },
 ]
 
 // css hex string -> Phaser color number

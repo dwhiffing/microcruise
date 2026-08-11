@@ -24,6 +24,7 @@ export class UI {
   public scoreText!: GameObjects.BitmapText
   public title!: GameObjects.Sprite
   private timerDigits: GameObjects.Sprite[]
+  private timerShadows: GameObjects.Sprite[]
   private speedo: GameObjects.Graphics
   private speedoBg: GameObjects.Graphics
   private speedoText: GameObjects.BitmapText
@@ -35,6 +36,8 @@ export class UI {
   private rpmTarget = -1 // px width the fill is currently tweening toward
   private countdownDigit: GameObjects.Sprite
   private countdownShadow: GameObjects.Sprite
+  private lastTimer = -1 // last value setTimer displayed
+  private timerFade?: Phaser.Tweens.Tween
   // every HUD element with its designed resting alpha, for the fade-in
   private hud: { obj: HudElement; alpha: number }[] = []
   private scene: Scene
@@ -72,7 +75,17 @@ export class UI {
     this.playTitleAnimation()
 
     // countdown clock digits ('score' spritesheet: frame = digit), hidden
-    // until a run starts
+    // until a run starts. The shadows sit under the digits (created
+    // first, same depth) and only show with the enlarged final-seconds
+    // clock
+    this.timerShadows = [0, 1].map(() =>
+      scene.add
+        .sprite(0, 0, 'score', 0)
+        .setOrigin(0.5, 0)
+        .setTintFill(0x000000)
+        .setDepth(10)
+        .setVisible(false),
+    )
     this.timerDigits = [0, 1].map(() =>
       scene.add
         .sprite(0, 0, 'score', 0)
@@ -215,15 +228,55 @@ export class UI {
     }
   }
 
-  // show the remaining seconds centred at the top of the screen
+  // show the remaining seconds centred at the top of the screen; the
+  // final seconds jump to the middle of the screen at triple size, going
+  // red for the last few ticks. A 0 holds for a second, then fades out
   setTimer(seconds: number) {
+    if (seconds === this.lastTimer) return
+    if (seconds === 0) {
+      this.timerFade = this.scene.tweens.add({
+        targets: [...this.timerDigits, ...this.timerShadows],
+        alpha: 0,
+        delay: 1000,
+        duration: 400,
+        onComplete: () => {
+          this.timerFade = undefined
+          this.timerDigits.forEach((digit) => digit.setVisible(false))
+          this.timerShadows.forEach((shadow) => shadow.setVisible(false))
+        },
+      })
+    } else if (this.lastTimer === 0) {
+      // refilled off zero (checkpoint rescue): cancel the pending fade
+      this.timerFade?.stop()
+      this.timerFade = undefined
+      this.timerDigits.forEach((digit) => digit.setAlpha(1))
+      this.timerShadows.forEach((shadow) => shadow.setAlpha(1))
+    }
+    this.lastTimer = seconds
+
     const text = String(seconds)
+    const urgent = seconds < 6
+    const scale = urgent ? 2 : 1
     this.timerDigits.forEach((digit, i) => {
       const used = i < text.length
+      const shadow = this.timerShadows[i]
       digit.setVisible(used)
+      // the drop shadow only backs the enlarged clock
+      shadow.setVisible(used && urgent)
       if (used) {
         digit.setFrame(Number(text[i]))
-        digit.x = 33 - text.length * 4 + i * 8 + 4
+        digit.setScale(scale)
+        digit.x = 33 + (i * 8 + 4 - text.length * 4) * scale
+        // origin is top-centre, so centre the scaled digit vertically
+        digit.y = urgent ? 32 - (digit.height * scale) / 2 : 0
+        if (seconds < 4) digit.setTintFill(0xff3b3b)
+        else digit.clearTint()
+        if (urgent) {
+          shadow
+            .setFrame(Number(text[i]))
+            .setScale(scale)
+            .setPosition(digit.x + scale - 1, digit.y + scale - 1)
+        }
       }
     })
   }
@@ -285,7 +338,12 @@ export class UI {
   }
 
   hideHud() {
-    this.timerDigits.forEach((digit) => digit.setVisible(false))
+    // a 0 on the clock owns its own exit — it holds for a beat and fades
+    // even when the run ends underneath it
+    if (!this.timerFade) {
+      this.timerDigits.forEach((digit) => digit.setVisible(false))
+      this.timerShadows.forEach((shadow) => shadow.setVisible(false))
+    }
     this.speedo.setVisible(false)
     this.speedoBg.setVisible(false)
     this.speedoText.setVisible(false)

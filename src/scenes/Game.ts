@@ -217,6 +217,11 @@ export class Game extends Scene {
       this.takeDamage(this.speed)
     })
 
+    // debug: set the clock to 15 seconds
+    this.input.keyboard!.on('keydown-B', () => {
+      this.timeLeft = 15
+    })
+
     // debug: 1-4 drops a specific vehicle type onto the road ahead by
     // repurposing whichever traffic car is farthest from the player
     ;['ONE', 'TWO', 'THREE', 'FOUR'].forEach((key, i) => {

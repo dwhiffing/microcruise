@@ -10,6 +10,9 @@ import { RoadObject } from './RoadObject'
 const FALL_X_OFFSET = 13
 const FALL_Y_OFFSET = 0
 const FALL_FRICTION = 500
+// the wreck's size falloff with distance (RoadObject scaleExponent):
+// 1 = true perspective, lower keeps it bigger for longer as it recedes
+const FALL_SCALE_EXPONENT = 0.6
 
 // one traffic vehicle type: its sheet, physical size, pre-drawn distance
 // frames, and whether the sheet has lean art (frames 1-5 at the nearest
@@ -34,6 +37,9 @@ export interface VehicleSpec {
   // CAR_COLLIDE_LANE, which is the default) — narrow vehicles get a
   // narrow box so brushing past them doesn't count as a hit
   collideLane?: number
+  // multiplier on the damage the player takes from hitting this vehicle:
+  // clipping a bike barely hurts, ramming a semi hurts a lot. 1 = normal
+  damageFactor?: number
 }
 
 export const VEHICLES: VehicleSpec[] = [
@@ -66,6 +72,7 @@ export const VEHICLES: VehicleSpec[] = [
     hasLean: false,
     speedFactor: 0.8,
     scaleExponent: 0.7,
+    damageFactor: 1.3,
     sizeFrames: [
       { frame: 0, width: 22, yOffset: 7 },
       { frame: 1, width: 20, yOffset: 8 },
@@ -88,6 +95,7 @@ export const VEHICLES: VehicleSpec[] = [
     hasLean: false,
     speedFactor: 0.65,
     scaleExponent: 0.62,
+    damageFactor: 1.6,
     sizeFrames: [
       { frame: 0, width: 31, yOffset: 3 },
       { frame: 1, width: 27, yOffset: 6 },
@@ -114,8 +122,9 @@ export const VEHICLES: VehicleSpec[] = [
     worldWidth: 12,
     hasLean: false,
     collideLane: 0.12 * LANE_SCALE,
-    speedFactor: 0.65,
-    scaleExponent: 0.9,
+    speedFactor: 0.8,
+    scaleExponent: 0.8,
+    damageFactor: 0.4,
     sizeFrames: [
       { frame: 0, width: 20 },
       { frame: 1, width: 18, yOffset: 1 },
@@ -170,6 +179,11 @@ export class NpcCar {
     return this.spec.collideLane ?? CAR_COLLIDE_LANE
   }
 
+  // how hard hitting this vehicle punishes the player, per vehicle type
+  get damageFactor() {
+    return this.spec.damageFactor ?? 1
+  }
+
   // what this NPC is currently driving
   get vehicle() {
     return this.spec
@@ -192,6 +206,7 @@ export class NpcCar {
       {
         worldWidth: 38,
         maxScale: 1,
+        scaleExponent: FALL_SCALE_EXPONENT,
         flipX: dir < 0,
         yOffset: FALL_Y_OFFSET,
       },

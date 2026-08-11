@@ -319,6 +319,8 @@ export class Game extends Scene {
     halfZ: number,
     halfLane: number,
     objSpeed: number,
+    // scales the health cost of this hit (heavy vehicles hurt more)
+    damageFactor = 1,
   ): number | null {
     const dz = z - (this.distance + PLAYER_Z)
     const dLane = this.playerX - lane
@@ -335,18 +337,18 @@ export class Game extends Scene {
       // side swipe: shove the player out laterally, mild speed scrub
       this.playerX = lane + side * halfLane
       this.bounceVx = side * 2
-      this.takeDamage(this.speed * 0.5)
+      this.takeDamage(this.speed * 0.5, damageFactor)
       this.speed *= 0.9
     } else if (dz > 0) {
       // hit it head-on: snap just behind, hard speed loss, deflect toward
       // whichever side the player was already offset
       this.distance = z - halfZ - PLAYER_Z
-      this.takeDamage(Math.max(0, this.speed - objSpeed) * 2)
+      this.takeDamage(Math.max(0, this.speed - objSpeed) * 2, damageFactor)
       this.speed = Math.min(this.speed, objSpeed) * 0.5
       this.bounceVx = side * 1.2
     } else {
       // clipped from behind by something faster: shoved forward
-      this.takeDamage(Math.max(0, objSpeed - this.speed))
+      this.takeDamage(Math.max(0, objSpeed - this.speed), damageFactor)
       this.speed = Math.max(this.speed, objSpeed)
       this.bounceVx = side * 1.2
     }
@@ -356,8 +358,10 @@ export class Game extends Scene {
 
   // impact speed -> health loss: a hit at MAX_SPEED relative speed costs
   // COLLISION_DAMAGE. At zero health the car explodes and the run ends.
-  private takeDamage(_impactSpeed: number) {
-    const impactSpeed = Math.max(75, _impactSpeed * 0.5)
+  // factor scales the final cost (after the minimum-impact floor, so a
+  // soft target stays cheap even on low-speed clips)
+  private takeDamage(_impactSpeed: number, factor = 1) {
+    const impactSpeed = Math.max(75, _impactSpeed * 0.5) * factor
     if (
       this.paused ||
       this.health <= 0 ||
@@ -934,6 +938,7 @@ export class Game extends Scene {
         CAR_COLLIDE_Z,
         car.collideLane,
         car.speed,
+        car.damageFactor,
       )
       // knocking over a motorcycle: it goes down where it was struck,
       // toppling away from the player and carried on by the impact

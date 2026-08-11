@@ -8,7 +8,7 @@ const INTERVAL = 100
 // default lateral band, in road-relative lane units from the centre: the
 // road's edge is 1 and the bumpers end around 1.2
 const DIST_MIN = 2.5
-const DIST_MAX = 6
+const DIST_MAX = 3
 // shapes where in the band a decal lands: >1 clusters them against the
 // road, <1 pushes them out toward DIST_MAX, 1 = uniform
 const DIST_BIAS = 0.5
@@ -34,6 +34,13 @@ export interface DecalSpec {
   // in world units, lane across it (same convention as the sign boxes).
   // Omitted = drive-through (bushes)
   collide?: { z: number; lane: number }
+  // per-decal scaling overrides (see RoadObjectOptions): how the size
+  // falls off with distance (<1 keeps far ones legible, 1 = true
+  // perspective; default 0.8), and the floor/cap on the rendered scale
+  // (defaults 0 / 1 = never above native size)
+  scaleExponent?: number
+  minScale?: number
+  maxScale?: number
 }
 
 export const DECALS: DecalSpec[] = [
@@ -71,8 +78,8 @@ export const DECALS: DecalSpec[] = [
     // trees sit a little farther back so their canopies don't crowd the
     // shoulder
     // the trunk is solid
-    dist: [5, 6],
     collide: { z: 10, lane: 0.15 * LANE_SCALE },
+    scaleExponent: 1.1,
     sizeFrames: [
       { frame: 0, width: 46 },
       { frame: 1, width: 41, yOffset: 2 },
@@ -91,8 +98,8 @@ export const DECALS: DecalSpec[] = [
     texture: 'tree2',
     weight: 1,
     worldWidth: 30,
-    dist: [5, 6],
     collide: { z: 10, lane: 0.15 * LANE_SCALE },
+    scaleExponent: 1.1,
     sizeFrames: [
       { frame: 0, width: 28, yOffset: 2 },
       { frame: 1, width: 25, yOffset: 4 },
@@ -140,8 +147,9 @@ export class Scenery {
         spec,
         obj: new RoadObject(this.scene, spec.texture, this.nextZ, side * dist, {
           worldWidth: spec.worldWidth,
-          maxScale: 1,
-          scaleExponent: 0.8,
+          minScale: spec.minScale ?? 0,
+          maxScale: spec.maxScale ?? 1,
+          scaleExponent: spec.scaleExponent ?? 0.8,
           // free variety
           flipX: Math.random() < 0.5,
           // the crest-occlusion flag is unreliable for static objects

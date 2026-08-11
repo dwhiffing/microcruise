@@ -20,6 +20,13 @@ const SPARK_COLOR = 0xffec27
 const COIN_FLASH_COLOR = 0x5959b3
 const COIN_FLASH_STRENGTH = 0.45
 const COIN_FLASH_MS = 60
+// crossing a checkpoint: green body wash plus a confetti burst — bits
+// stay untinted like the sparks, so they pop at night
+const CHECKPOINT_FLASH_COLOR = 0x191970
+const CHECKPOINT_FLASH_STRENGTH = 0.6
+const CHECKPOINT_FLASH_MS = 100
+const CONFETTI_COLORS = [0xff3b3b, 0xffec27, 0x29adff, 0x00e436, 0xff77a8]
+const CONFETTI_COUNT = 14
 
 // where tire smoke spawns, relative to the sprite centre, for each lean
 // frame 0-5 (the art faces right; a left-facing car mirrors the x's):
@@ -184,6 +191,41 @@ export class Car {
         life: 0.2 + Math.random() * 0.1,
         maxLife: 0.3,
         trail: [],
+      })
+    }
+  }
+
+  // checkpoint crossed: the body flashes green and confetti flutters up
+  // off the car — the pieces ride the debris system, launched upward,
+  // arcing back down under its gravity and culled below the car
+  onCheckpoint() {
+    const wash = lerpColor(
+      0xffffff,
+      CHECKPOINT_FLASH_COLOR,
+      CHECKPOINT_FLASH_STRENGTH,
+    )
+    this.sprite.setTintFill(multiplyColor(wash, this.dayTint))
+    this.flashing = true
+    this.scene.time.delayedCall(CHECKPOINT_FLASH_MS, () => {
+      this.flashing = false
+      this.sprite.setTintFill(this.dayTint)
+    })
+
+    for (let i = 0; i < CONFETTI_COUNT; i++) {
+      const rect = this.scene.add
+        .rectangle(
+          this.sprite.x - 10 + Math.random() * 20,
+          this.sprite.y - 2,
+          1,
+          2,
+          CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        )
+        .setDepth(3)
+      this.debris.push({
+        rect,
+        vx: (Math.random() - 0.5) * 70,
+        vy: -(50 + Math.random() * 60),
+        spin: (Math.random() - 0.5) * 30,
       })
     }
   }

@@ -281,6 +281,29 @@ export class UI {
     })
   }
 
+  // a checkpoint's time bonus shoots down out of the clock and fades
+  showTimeBonus(bonus: number) {
+    const label = this.scene.add
+      .bitmapText(33, 8, 'pixel-dan', `+${bonus}`)
+      .setOrigin(0.5, 0)
+      .setTintFill(0xffffff)
+      .setFontSize(5)
+      .setDepth(10)
+    this.scene.tweens.add({
+      targets: label,
+      y: label.y + 2,
+      duration: 300,
+      ease: 'Sine.easeOut',
+    })
+    this.scene.tweens.add({
+      targets: label,
+      alpha: 0,
+      delay: 500,
+      duration: 400,
+      onComplete: () => label.destroy(),
+    })
+  }
+
   // big 3-2-1-0 in the centre of the screen, one second per digit; the
   // run starts (callback) as the 0 lands, and the 0 fades away over it
   countdown(onComplete: () => void) {

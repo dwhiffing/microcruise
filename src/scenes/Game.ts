@@ -870,6 +870,8 @@ export class Game extends Scene {
         this.timeLeft = Math.min(MAX_TIME, this.timeLeft + CHECKPOINT_BONUS)
         this.health = Math.min(MAX_HEALTH, this.health + CHECKPOINT_REPAIR)
         this.car.setHealth(this.health)
+        this.car.onCheckpoint()
+        this.ui.showTimeBonus(CHECKPOINT_BONUS)
         this.sound.play('coin-hit', { volume: 0.5 })
         gantry.destroy()
         return false

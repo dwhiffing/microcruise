@@ -38,6 +38,7 @@ export class UI {
   private countdownShadow: GameObjects.Sprite
   private gearManual: GameObjects.Sprite
   private gearAuto: GameObjects.Sprite
+  private gearFlashTimer?: Phaser.Time.TimerEvent
   private lastTimer = -1 // last value setTimer displayed
   private zeroShownAt = 0 // when the clock hit 0 (ms timestamp)
   private timerFade?: Phaser.Tweens.Tween
@@ -367,6 +368,43 @@ export class UI {
   setGearMenu(auto: boolean) {
     this.gearManual.setFrame(auto ? 0 : 1)
     this.gearAuto.setFrame(auto ? 3 : 2)
+  }
+
+  // the moment a choice is made: the pick jumps to its lit-up frame
+  // (gearing 4 = manual lit, 5 = automatic lit) and the option that
+  // wasn't picked drops away, ahead of the (possibly delayed) flash
+  dismissGearChoice(auto: boolean) {
+    const target = auto ? this.gearAuto : this.gearManual
+    const other = auto ? this.gearManual : this.gearAuto
+    target.setFrame(auto ? 5 : 4)
+    this.scene.tweens.killTweensOf(other)
+    this.scene.tweens.add({
+      targets: other,
+      alpha: 0,
+      duration: 300,
+      onComplete: () => other.setVisible(false),
+    })
+  }
+
+  // confirm feedback: the already-lit choice blinks between its lit
+  // frame and its dedicated flash frame (gearing 6 = manual, 7 =
+  // automatic) a fixed number of times, paced to fill the given window
+  // — it ends lit
+  flashGearChoice(auto: boolean, flashes: number, duration: number) {
+    const target = auto ? this.gearAuto : this.gearManual
+    const litFrame = auto ? 5 : 4
+    const flashFrame = auto ? 7 : 6
+    this.gearFlashTimer?.remove()
+    target.setFrame(litFrame)
+    let lit = true
+    this.gearFlashTimer = this.scene.time.addEvent({
+      delay: duration / (flashes * 2),
+      repeat: flashes * 2 - 1,
+      callback: () => {
+        lit = !lit
+        target.setFrame(lit ? litFrame : flashFrame)
+      },
+    })
   }
 
   // confirmed: the picker fades back out as the run approach begins

@@ -62,6 +62,12 @@ export const ENGINE_BRAKE = 400
 // RPM bar reads (speed / gear max) ^ this exponent: revs drop to mid-band
 // on an upshift and surge toward redline, like a real tach
 export const RPM_CURVE = 3
+// engine sound: one looping sample (a low-RPM on-throttle loop) is
+// pitch-bent across the rev range — the playback rate slides between
+// these bounds as the RPM bar goes 0 to redline
+export const ENGINE_VOLUME = 0.15
+export const ENGINE_RATE_MIN = 0.4
+export const ENGINE_RATE_MAX = 0.7
 // automatic transmission: shifts up at redline under throttle and back
 // down as speed falls; up/down manual shifting is disabled while on
 export const AUTO_SHIFT = true
@@ -71,7 +77,7 @@ export const TOP_SPEED_MPH = 200
 // speed at which steering/centrifugal reach nominal strength; forces keep
 // growing with real speed past it, so faster = harder to hold a curve
 export const REFERENCE_SPEED = 300
-export const ACCEL = 60
+export const ACCEL = 40
 export const BRAKE = 300
 export const COAST_DECEL = 30
 // with the clock at 0 the car drags itself down at this multiple of the
@@ -115,7 +121,7 @@ export const DRIFT_GRIP = 0.5
 export const DRIFT_COUNTERSTEER_TIME = 0.12
 export const DRIFT_RELEASE_TIME = 0.4
 // a drift never lasts longer than this many seconds
-export const DRIFT_MAX_TIME = 3
+export const DRIFT_MAX_TIME = 2.4
 
 // turn-warning chevrons: how many repeats lead into a big turn, how far
 // apart they're spaced, and how far before the bend the first one sits

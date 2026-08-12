@@ -156,8 +156,20 @@ export class Boot extends Scene {
     this.load.image('flag', 'flag.png')
 
     this.load.setPath('assets/audio')
-    this.load.audio('coin-hit', 'coin-hit.mp3')
+    this.load.audio('select', 'select.mp3')
+    this.load.audio('explode', 'explode.wav')
+    this.load.audio('fire', 'fire.wav')
+    this.load.audio('fire2', 'fire2.wav')
+    this.load.audio('coin', 'coin.wav')
     this.load.audio('music', 'music-crispy.mp3')
+    // wav, not mp3: encoder padding puts a gap at mp3 loop points
+    this.load.audio('engine', 'engine.wav')
+    this.load.audio('checkpoint', 'checkpoint.wav')
+    this.load.audio('drift', 'drift.wav')
+    this.load.audio('keys', 'keys.wav')
+    this.load.audio('light-crash', 'light-crash.wav')
+    this.load.audio('crash', 'crash.wav')
+    this.load.audio('ignition', 'ignition.wav')
   }
 
   create() {

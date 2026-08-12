@@ -31,6 +31,9 @@ import {
   DRIFT_MIN_STEER,
   DRIFT_RELEASE_TIME,
   ENGINE_BRAKE,
+  ENGINE_RATE_MAX,
+  ENGINE_RATE_MIN,
+  ENGINE_VOLUME,
   GAME_HEIGHT,
   GEAR_ACCEL,
   GEAR_MAX,
@@ -94,6 +97,18 @@ const MENU_DRIVE_SPEED = 400
 // its brake into the run-start straightaway
 const MENU_DRIVE_ACCEL = 300
 const MENU_BRAKE_DECEL = 900
+const DRIFT_SOUND_VOLUME = 0.9
+const BRAKE_SOUND_RATE = 0.85
+const ENTER_BRAKE_MS = 80
+// the transmission picker ignores input for this long after opening, so
+// the press that opened it (or a quick double-tap) can't instantly
+// toggle or confirm
+const GEAR_MENU_INPUT_DELAY_MS = 400
+// coins grabbed in quick succession chime at rising pitch: each pickup
+// within the window steps the rate up from 1, clamped at the max
+const COIN_COMBO_WINDOW_MS = 1000
+const COIN_COMBO_RATE_STEP = 0.1
+const COIN_COMBO_RATE_MAX = 2
 
 // traffic car-following: an NPC closing on a slower one in its lane
 // matches its speed once within this many world units, instead of
@@ -103,6 +118,17 @@ const FOLLOW_GAP = 60
 export class Game extends Scene {
   public ui!: UI
   public music: Phaser.Sound.BaseSound
+  // the engine loop: pitch rides the same RPM value the tach shows
+  private engineSound!: Phaser.Sound.WebAudioSound
+  // the drift screech: attack marker once, sustain marker looping
+  private driftSound!: Phaser.Sound.WebAudioSound
+  private driftSoundOn = false
+  // the brake chirp: its own instance of the screech, so it can be cut
+  // early once the car has shed its speed
+  private brakeSound!: Phaser.Sound.WebAudioSound
+  private wasChirping = false // for the once-per-event brake/launch chirp
+  // the ignition turn-over: its completion cues the engine loop
+  private ignitionSound!: Phaser.Sound.WebAudioSound
   private cursors!: Types.Input.Keyboard.CursorKeys
   private keyZ!: Phaser.Input.Keyboard.Key
   private keyX!: Phaser.Input.Keyboard.Key
@@ -120,6 +146,8 @@ export class Game extends Scene {
   private coins: Coin[] = []
   private nextCoinZ = 0
   private coinScore = 0 // points banked from coins this run
+  private coinCombo = 0 // consecutive quick pickups, for the rising chime
+  private lastCoinAt = 0 // when the last coin was grabbed (ms timestamp)
   private traffic: NpcCar[] = []
   private speed = 0
   private playerX = 0 // -1..1 = on road, beyond that = grass
@@ -142,6 +170,7 @@ export class Game extends Scene {
   private isGameOver = true
   private menuCruising = false // camera rolling along the road at the menu
   private gearMenuOpen = false // picking manual/automatic before the run
+  private gearMenuOpenedAt = 0 // for the picker's input-ignore window
   private autoShift = AUTO_SHIFT // transmission choice, from the gear menu
   private startPending = false // start pressed: cruising to the aligned straight
   private menuTarget = 0 // z where the pre-run straightaway begins
@@ -198,6 +227,33 @@ export class Game extends Scene {
     this.cameras.main.fadeFrom(500, 0, 0, 0)
     this.music = this.sound.add('music', { loop: true, volume: 0.3 })
     this.music.pause()
+    this.engineSound = this.sound.add('engine', {
+      loop: true,
+      volume: ENGINE_VOLUME,
+    }) as Phaser.Sound.WebAudioSound
+    // the screech is split into two markers: the bite at the start
+    // plays once, then the steady middle loops while the drift holds
+    this.driftSound = this.sound.add('drift') as Phaser.Sound.WebAudioSound
+    const DRIFT_SOUND_ATTACK = 0.07
+    this.driftSound.addMarker({
+      name: 'attack',
+      start: 0,
+      duration: DRIFT_SOUND_ATTACK,
+      config: { volume: DRIFT_SOUND_VOLUME },
+    })
+    this.driftSound.addMarker({
+      name: 'sustain',
+      start: DRIFT_SOUND_ATTACK,
+      duration: this.driftSound.totalDuration - DRIFT_SOUND_ATTACK,
+      config: { volume: DRIFT_SOUND_VOLUME, loop: true },
+    })
+    this.brakeSound = this.sound.add('drift', {
+      volume: DRIFT_SOUND_VOLUME,
+      rate: BRAKE_SOUND_RATE,
+    }) as Phaser.Sound.WebAudioSound
+    this.ignitionSound = this.sound.add(
+      'ignition',
+    ) as Phaser.Sound.WebAudioSound
 
     // a struck motorcycle tips over and slides out, holding its final
     // wrecked frame until it scrolls behind the camera
@@ -307,10 +363,18 @@ export class Game extends Scene {
       const key = e.key.toLowerCase()
       const isArrow = e.key.includes('Arrow')
       if (!isArrow && key !== 'z' && key !== 'x') return
+      // the picker swallows everything for a beat after opening
+      if (
+        this.gearMenuOpen &&
+        this.time.now - this.gearMenuOpenedAt < GEAR_MENU_INPUT_DELAY_MS
+      ) {
+        return
+      }
       // while the transmission picker is up, arrows switch the choice
       // (two options, so any arrow toggles); x/z confirm and start
       if (this.gearMenuOpen && isArrow) {
         this.autoShift = !this.autoShift
+        this.sound.play('select')
         this.ui.setGearMenu(this.autoShift)
         return
       }
@@ -430,6 +494,12 @@ export class Game extends Scene {
       0,
       this.health - (impactSpeed / MAX_SPEED) * COLLISION_DAMAGE,
     )
+
+    if (impactSpeed < 100) {
+      this.sound.play('light-crash', { volume: 1 })
+    } else {
+      this.sound.play('crash', { volume: 1 })
+    }
     this.car.setHealth(this.health)
     this.car.onDamage()
     console.log(
@@ -441,6 +511,7 @@ export class Game extends Scene {
   // freeze the world while the explosion plays, then show the menu
   private die() {
     this.paused = true
+    this.sound.play('explode', { volume: 1 })
     this.car.explode(this.gameOver)
   }
 
@@ -449,22 +520,81 @@ export class Game extends Scene {
   // it (aligned with the first-boot view), then beginRun() takes over
   startGame = () => {
     if (!this.isGameOver || !this.menuCruising) return
-    // first press: the transmission picker, not the run
+    // first press: the transmission picker — the driver grabs their
+    // keys, and the camera immediately starts braking into the aligned
+    // straightaway while they choose (if it parks before they confirm,
+    // it just waits there)
     if (!this.gearMenuOpen && !this.startPending) {
       this.gearMenuOpen = true
+      this.gearMenuOpenedAt = this.time.now
       this.ui.showGearMenu(this.autoShift)
+      this.sound.play('keys', { volume: 2 })
+      this.startPending = true
+
+      this.menuTarget = this.road.straightenAhead()
+      // clear the road: whisk all traffic out past the horizon, spread
+      // ahead of the run start — anything visible vanishes immediately
+      for (const car of this.traffic) {
+        this.respawnCar(car)
+        car.z += this.menuTarget - this.distance
+      }
+      // the sunrise roll is timed to the default approach pace; a hurried
+      // approach just parks a little before the sky finishes settling
+      this.road.resetDayCycle(
+        ((this.menuTarget - this.distance) / MENU_DRIVE_SPEED) * 1000,
+      )
+      // signs pointing at turns that were just cut away would float over
+      // the straight road as we pass them
+      const cutoff = this.distance + DRAW_SEGMENTS * SEGMENT_LENGTH
+      this.turnSigns = this.turnSigns.filter((sign) => {
+        if (sign.z < cutoff) return true
+        sign.destroy()
+        return false
+      })
       return
     }
-    if (this.startPending) {
-      // pressing again skips ahead: teleport 95% of the way there and
-      // let the cruise's brake ease out the last stretch
-      this.distance += (this.menuTarget - this.distance) * 0.85
+    if (this.gearMenuOpen) {
+      // transmission confirmed: the choice blinks for a beat with the
+      // menu still up, then everything kicks off at once — the menu
+      // clears, the skip-ahead jump fires, the ignition turns over and
+      // the car drives in. The run proper still waits for the camera to
+      // finish pulling in
+      this.gearMenuOpen = false
+      // the unpicked option drops away instantly; the confirm flash on
+      // the chosen one follows on the ignition's timing below
+      this.ui.dismissGearChoice(this.autoShift)
+
+      // the ignition turns over, and the engine catches partway through:
+      // fading in as the camera pulls into position; the entrance in
+      // beginRun() then brakes it down to idle
+      this.ignitionSound.play({ volume: 0.7 })
+      this.time.delayedCall(500, () => {
+        this.ui.flashGearChoice(this.autoShift, 7, 800)
+        this.distance += Math.max(0, this.menuTarget - this.distance) * 0.85
+      })
+      this.time.delayedCall(this.ignitionSound.totalDuration * 350, () => {
+        this.engineSound.play({ volume: 0.01 })
+        this.time.delayedCall(50, () => {
+          this.tweens.add({
+            targets: this.engineSound,
+            volume: ENGINE_VOLUME,
+            duration: 250,
+          })
+        })
+      })
+
+      this.time.delayedCall(1300, () => this.launchRun())
       return
     }
-    // transmission confirmed: the run proper begins
-    this.gearMenuOpen = false
+    // confirmed and still rolling: pressing again skips ahead — teleport
+    // most of the way there and let the cruise's brake ease out the rest
+    this.distance += (this.menuTarget - this.distance) * 0.85
+  }
+
+  // the gear-confirm flash has played out: clear the menu and set the
+  // run intro in motion (the camera may still be braking into position)
+  private launchRun() {
     this.ui.hideGearMenu()
-    this.startPending = true
 
     this.ui.cancelMenu()
     this.tweens.add({
@@ -473,26 +603,46 @@ export class Game extends Scene {
       duration: 500,
     })
 
-    this.menuTarget = this.road.straightenAhead()
-    // clear the road: whisk all traffic out past the horizon, spread
-    // ahead of the run start — anything visible vanishes immediately
-    for (const car of this.traffic) {
-      this.respawnCar(car)
-      car.z += this.menuTarget - this.distance
-    }
-    // the sunrise roll is timed to the default approach pace; a hurried
-    // approach just parks a little before the sky finishes settling
-    this.road.resetDayCycle(
-      ((this.menuTarget - this.distance) / MENU_DRIVE_SPEED) * 1000,
-    )
-    // signs pointing at turns that were just cut away would float over
-    // the straight road as we pass them
-    const cutoff = this.distance + DRAW_SEGMENTS * SEGMENT_LENGTH
-    this.turnSigns = this.turnSigns.filter((sign) => {
-      if (sign.z < cutoff) return true
-      sign.destroy()
-      return false
+    // the car drives in right now, while the camera is still braking
+    // into position; the run itself still waits in beginRun() for the
+    // camera to park. Through the entrance's braking phase the revs
+    // fall to idle, punctuated by the brake chirp as the tires bite
+    this.car.reset()
+    this.tweens.add({
+      targets: this.engineSound,
+      rate: ENGINE_RATE_MIN,
+      delay: ENTER_BRAKE_MS,
+      duration: 700 - ENTER_BRAKE_MS,
+      ease: 'Sine.easeOut',
     })
+    this.time.delayedCall(ENTER_BRAKE_MS, () => {
+      this.tweens.killTweensOf(this.brakeSound)
+      this.brakeSound.setVolume(DRIFT_SOUND_VOLUME)
+      this.brakeSound.play()
+    })
+    // ...then the 3-2-1 countdown; the clock and controls only come
+    // alive once it finishes AND the camera has parked (gameplay is
+    // gated on menuCruising, so an early unpause just waits)
+    this.car.enter(
+      () => {
+        if (SKIP_COUNTDOWN) {
+          this.paused = false
+          return
+        }
+        this.ui.countdown(() => {
+          this.paused = false
+        })
+      },
+      (wheelY) => {
+        // map the wheels' screen row back to a world depth on the
+        // straightaway — the marks land under the car and scroll away
+        // once it's driving
+        const scale = (wheelY - HORIZON_Y) / (CAMERA_HEIGHT * (GAME_HEIGHT / 2))
+        if (scale <= 0) return
+        this.skidMarks.add(this.distance + CAMERA_DEPTH / scale, this.playerX)
+        this.skidMarks.update(this.road, this.distance)
+      },
+    )
   }
 
   // the camera has parked in the straightaway: reset the run state and
@@ -507,7 +657,7 @@ export class Game extends Scene {
     this.health = MAX_HEALTH
     this.damageCooldown = 0
     this.impactSkidTime = 0
-    this.car.reset()
+    // (the car was already reset and sent driving in at gear confirm)
     this.timeLeft = RACE_TIME
     this.outOfTime = false
     this.ui.setTimer(RACE_TIME)
@@ -525,34 +675,11 @@ export class Game extends Scene {
     this.isGameOver = false
     // TODO: re-enable music
     // this.music.play()
-    // the whole HUD fades in with fresh values while the car drives in
+    // the whole HUD fades in with fresh values (the car entrance is
+    // already underway — it started when the transmission was confirmed)
     this.ui.setSpeed(0)
     this.ui.setGearHud(1, 0, 0)
     this.ui.showHud()
-
-    // the car drives in from below the frame and brakes into its starting
-    // spot, then the 3-2-1 countdown runs; the clock and controls only
-    // come alive once it finishes
-    this.car.enter(
-      () => {
-        if (SKIP_COUNTDOWN) {
-          this.paused = false
-          return
-        }
-        this.ui.countdown(() => {
-          this.paused = false
-        })
-      },
-      (wheelY) => {
-        // the world is frozen during the entrance, so map the wheels'
-        // screen row back to a world depth on the flat straightaway —
-        // the marks land under the car and scroll away once it's driving
-        const scale = (wheelY - HORIZON_Y) / (CAMERA_HEIGHT * (GAME_HEIGHT / 2))
-        if (scale <= 0) return
-        this.skidMarks.add(this.distance + CAMERA_DEPTH / scale, this.playerX)
-        this.skidMarks.update(this.road, this.distance)
-      },
-    )
   }
 
   gameOver = () => {
@@ -560,6 +687,8 @@ export class Game extends Scene {
     this.ui.hideHud()
     this.car.exit()
     this.music.pause()
+    this.engineSound.stop()
+    if (this.driftSoundOn) this.stopDriftSound()
 
     // reset the world back to level 1 right away, so the road/scenery/
     // skyline are already easing back to grass through the game-over
@@ -642,7 +771,9 @@ export class Game extends Scene {
       }
       car.update(this.road, dt, MENU_DRIVE_SPEED, this.followCap(car))
     }
-    if (arrived) {
+    // hand off only once the transmission is picked — the camera can
+    // arrive early and sit parked while the gear menu is still up
+    if (arrived && !this.gearMenuOpen) {
       this.menuCruising = false
       this.startPending = false
       this.beginRun()
@@ -694,8 +825,10 @@ export class Game extends Scene {
     // dirt when off in the grass
     const throttle = !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
     const braking = this.keyC.isDown && this.speed > 30
+    // spinning the wheels off the line: throttle at low speed
+    const launching = throttle && mph < 25 && mph > 1
     const tiresSmoking =
-      (throttle && mph < 25 && mph > 1) ||
+      launching ||
       braking ||
       this.driftDir !== 0 ||
       this.car.isUnwinding() ||
@@ -708,14 +841,47 @@ export class Game extends Scene {
     this.car.setBraking(this.keyC.isDown)
     // RPM follows an exponential curve of speed against the gear's max:
     // an upshift drops the revs to mid-band, then they surge to redline
-    this.ui.setGearHud(
-      this.gear,
-      Math.pow(
-        this.speed / (GEAR_MAX[this.gear - 1] * this.maxSpeed),
-        RPM_CURVE,
-      ),
-      this.score,
+    const rpm = Math.pow(
+      this.speed / (GEAR_MAX[this.gear - 1] * this.maxSpeed),
+      RPM_CURVE,
     )
+    this.ui.setGearHud(this.gear, rpm, this.score)
+    // the engine loop's pitch rides the tach (engine braking past
+    // redline can push the ratio over 1, so clamp)
+    this.engineSound.setRate(
+      ENGINE_RATE_MIN + Math.min(1, rpm) * (ENGINE_RATE_MAX - ENGINE_RATE_MIN),
+    )
+    // the looping screech follows drifts and launch burnouts alike,
+    // sustaining as long as either holds — however it ends (release,
+    // countersteer, timeout, an impact, or the tires gripping)
+    const drifting = this.driftDir !== 0
+    const screeching = drifting || launching
+    if (screeching !== this.driftSoundOn) {
+      // launches don't loop: the screech plays once and rings out
+      screeching ? this.startDriftSound(drifting) : this.stopDriftSound()
+    }
+    // hard braking fires the whole screech once per press (no loop),
+    // slightly lower-pitched — unless the loop owns the sound already
+    if (braking && !this.wasChirping && !screeching) {
+      this.tweens.killTweensOf(this.brakeSound)
+      this.brakeSound.setVolume(DRIFT_SOUND_VOLUME)
+      this.brakeSound.play()
+    }
+    this.wasChirping = braking
+    // the chirp cuts as soon as the braking stops — the pedal released,
+    // or the car slowed below the braking flag's speed floor
+    if (
+      this.brakeSound.isPlaying &&
+      !braking &&
+      !this.tweens.isTweening(this.brakeSound)
+    ) {
+      this.tweens.add({
+        targets: this.brakeSound,
+        volume: 0,
+        duration: 150,
+        onComplete: () => this.brakeSound.stop(),
+      })
+    }
     this.updatePlayerX(dt)
     this.distance += this.speed * dt
 
@@ -749,6 +915,31 @@ export class Game extends Scene {
     this.updateTraffic(dt)
     this.handleCollisions()
     this.updateCarShake(offRoad, tiresSmoking)
+  }
+
+  // the screech: play the bite once, chain into the sustain, and on
+  // release fade out instead of cutting — a short drift chirps, a long
+  // one sustains. Drifts loop the sustain for as long as they hold; a
+  // launch plays it once through and lets it end
+  private startDriftSound(loop = true) {
+    this.driftSoundOn = true
+    this.tweens.killTweensOf(this.driftSound)
+    this.driftSound.setVolume(DRIFT_SOUND_VOLUME)
+    this.driftSound.play('attack')
+    this.driftSound.once('complete', () => {
+      if (this.driftSoundOn) this.driftSound.play('sustain', { loop })
+    })
+  }
+
+  private stopDriftSound() {
+    this.driftSoundOn = false
+    this.driftSound.off('complete')
+    this.tweens.add({
+      targets: this.driftSound,
+      volume: 0,
+      duration: 150,
+      onComplete: () => this.driftSound.stop(),
+    })
   }
 
   // tap the brake while fast and turned hard to kick into a drift: the car
@@ -955,6 +1146,7 @@ export class Game extends Scene {
       if (gantry.z < this.distance) {
         this.timeLeft = Math.min(MAX_TIME, this.timeLeft + CHECKPOINT_BONUS)
         this.health = Math.min(MAX_HEALTH, this.health + CHECKPOINT_REPAIR)
+        this.sound.play('checkpoint', { volume: 1.5, rate: 1 })
         this.car.setHealth(this.health)
         this.car.onCheckpoint()
         this.ui.showTimeBonus(CHECKPOINT_BONUS)
@@ -966,7 +1158,7 @@ export class Game extends Scene {
           Math.floor(this.checkpointsCrossed / CHECKPOINTS_PER_LEVEL),
         )
         if (next !== this.level) this.setLevel(next)
-        this.sound.play('coin-hit', { volume: 0.5 })
+        this.sound.play('select', { volume: 0.5 })
         gantry.destroy()
         return false
       }
@@ -1003,7 +1195,20 @@ export class Game extends Scene {
           COIN_COLLIDE_LANE * laneScale()
       ) {
         this.coinScore += COIN_POINTS
-        this.sound.play('coin-hit', { volume: 0.5 })
+        // a quick string of pickups chimes at rising pitch; a pause
+        // between coins resets it to the base rate
+        this.coinCombo =
+          this.time.now - this.lastCoinAt < COIN_COMBO_WINDOW_MS
+            ? this.coinCombo + 1
+            : 0
+        this.lastCoinAt = this.time.now
+        this.sound.play('coin', {
+          volume: 0.5,
+          rate: Math.min(
+            COIN_COMBO_RATE_MAX,
+            1 + this.coinCombo * COIN_COMBO_RATE_STEP,
+          ),
+        })
         this.car.emitCoin()
         coin.destroy()
         return false

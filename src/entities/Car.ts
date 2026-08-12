@@ -377,8 +377,23 @@ export class Car {
 
     const burning = health > 0 && fireSize !== null
     this.fire.setVisible(burning)
-    if (burning) this.fire.play(`${fireSize}-fire`, true)
-    else this.fire.stop()
+    if (burning) {
+      this.fire.play(`${fireSize}-fire`, true)
+      // small/medium flames crackle with 'fire'; a large blaze steps up
+      // to 'fire2' — switching sizes swaps one loop for the other
+      const key = fireSize === 'small' ? 'fire' : 'fire2'
+      const other = fireSize === 'small' ? 'fire2' : 'fire'
+      this.scene.sound.stopByKey(other)
+      if (!this.scene.sound.get(key)?.isPlaying)
+        this.scene.sound.play(key, {
+          volume: fireSize === 'small' ? 1 : 0.5,
+          loop: true,
+        })
+    } else {
+      this.scene.sound.stopByKey('fire')
+      this.scene.sound.stopByKey('fire2')
+      this.fire.stop()
+    }
   }
 
   // the car is done: hide it (and its damage effects), play the explosion

@@ -70,7 +70,7 @@ export class UI {
       repeat: -1,
     })
     this.titleText = scene.add
-      .sprite(32, 61, 'button', 0)
+      .sprite(31, 61, 'button', 0)
       .setOrigin(0.5, 1)
       .setDepth(10)
 

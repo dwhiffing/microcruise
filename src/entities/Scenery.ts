@@ -286,7 +286,7 @@ export class Scenery {
           // (same as signs/coins), but do hold a decal back until its
           // ground is actually in view, so it can't float over the
           // horizon when it first enters range
-          ignoreOcclusion: true,
+          ignoreOcclusion: false,
           ...(SCALE_FIRST_FRAME
             ? {
                 // anchor at the largest frame's art bottom (its seat

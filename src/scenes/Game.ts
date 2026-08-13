@@ -1380,7 +1380,6 @@ export class Game extends Scene {
             {
               worldWidth: 20,
               flipX: turn.direction > 0,
-              ignoreOcclusion: true,
               maxScale: 1,
               scaleExponent: 0.9,
               sizeFrames: SIGN_SIZE_FRAMES,

@@ -38,10 +38,9 @@ export class Coin extends RoadObject {
   constructor(scene: Phaser.Scene, z: number, laneOffset: number) {
     super(scene, 'coin', z, laneOffset, {
       worldWidth: COIN_WORLD_WIDTH,
-      // the crest-occlusion flag is unreliable for static on-road points
-      // (signs and checkpoints bypass it too) — without this, coins are
-      // culled virtually every frame
-      ignoreOcclusion: true,
+      // occlusion respected: a coin dips out of sight behind a hill
+      // crest like the road under it does (visibility is judged at its
+      // ground point, so the hover height doesn't let it peek early)
       // floor on the projected size: keeps the farthest coins a ~2px
       // dot instead of vanishing entirely
       minScale: 0.1,
@@ -68,7 +67,10 @@ export class Coin extends RoadObject {
   update(road: Road) {
     super.update(road)
     const p = road.project(this.z, this.laneOffset)
-    const show = p.scale > CAMERA_DEPTH / SHADOW_RANGE && this.sizeIndex >= 0
+    const show =
+      p.visible &&
+      p.scale > CAMERA_DEPTH / SHADOW_RANGE &&
+      this.sizeIndex >= 0
     this.shadow.setVisible(show)
     if (!show) return
     // the coin's centre, mirroring the sprite placement, then down half

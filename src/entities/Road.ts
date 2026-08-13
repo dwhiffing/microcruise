@@ -45,6 +45,15 @@ interface SegQuad {
   band: number
 }
 
+// slack (screen px) on the crest-occlusion test in project(). The margin
+// between an on-road point's row and its clip line shrinks below float
+// noise with distance, and is EXACTLY zero for points sitting on a
+// segment boundary (coin runs start on one) — a strict comparison
+// flickers far objects and permanently hides boundary-placed ones.
+// Anything a quarter-pixel of slack wrongly reveals is within 0.25px of
+// the terrain silhouette: invisible at this resolution
+const OCCLUSION_SLACK = 0.25
+
 // renders the track as a pseudo-3D road: sweeps the visible segments each
 // frame into filled trapezoids, scrolls the sky, and projects world-space
 // points onto the screen for road-relative objects. Track generation and
@@ -312,7 +321,12 @@ export class Road {
     const tRow = sy2 === sy1 ? 1 : (screenY - sy1) / (sy2 - sy1)
     const screenX = lerp(sx1, sx2, tRow)
 
-    return { screenX, screenY, scale, visible: screenY < seg.clipY }
+    return {
+      screenX,
+      screenY,
+      scale,
+      visible: screenY < seg.clipY + OCCLUSION_SLACK,
+    }
   }
 
   update(position: number, playerX: number, dt = 0) {

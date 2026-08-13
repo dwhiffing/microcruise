@@ -17,10 +17,7 @@ import {
   COAST_DECEL,
   COIN_COLLIDE_LANE,
   COIN_COLLIDE_Z,
-  COIN_GAP,
-  COIN_INTERVAL,
-  COIN_POINTS,
-  COIN_ROW_COUNT,
+  COLLIDE_CLEARANCE,
   COLLISION_DAMAGE,
   DAMAGE_COOLDOWN,
   DEBUG_KEYS,
@@ -507,9 +504,12 @@ export class Game extends Scene {
       this.takeDamage(this.speed * 0.5, damageFactor)
       this.speed *= 0.9
     } else if (dz > 0) {
-      // hit it head-on: snap just behind, hard speed loss, deflect toward
-      // whichever side the player was already offset
-      this.distance = z - halfZ - PLAYER_Z
+      // hit it head-on: snap just behind with a clearance margin so the
+      // car sits fully outside the hitbox (otherwise a static obstacle
+      // like a sign leaves it grinding on the edge, re-hitting and
+      // replaying the crash every time the damage cooldown lapses), hard
+      // speed loss, deflect toward whichever side the player was offset
+      this.distance = z - halfZ - PLAYER_Z - COLLIDE_CLEARANCE
       this.takeDamage(Math.max(0, this.speed - objSpeed) * 2, damageFactor)
       this.speed = Math.min(this.speed, objSpeed) * 0.5
       this.bounceVx = side * 1.2

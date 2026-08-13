@@ -211,6 +211,10 @@ export const CAR_COLLIDE_LANE = 0.3
 // signs are narrow static posts, so a smaller box
 export const SIGN_COLLIDE_Z = 10
 export const SIGN_COLLIDE_LANE = 0.15
+// world units a head-on hit parks the car back beyond the hitbox edge,
+// so it sits fully clear instead of grinding on the boundary and
+// re-triggering the crash every time the damage cooldown lapses
+export const COLLIDE_CLEARANCE = 2
 
 // while braking, these car-sprite colours are swapped (the taillights
 // light up): [from, to] pairs baked into a recoloured copy of the sheet

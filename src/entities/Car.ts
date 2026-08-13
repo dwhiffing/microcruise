@@ -78,6 +78,10 @@ export class Car {
   private shakeAmount = 0 // continuous rattle (px), set every live frame
   private impactJolt = 0 // decaying rattle kicked off by a collision
   private braking = false // swaps to the lit-taillight sheet
+  // the fire crackle loop currently playing, and which sample it is —
+  // tracked by reference so re-checks each frame don't stack duplicates
+  private fireSound?: Phaser.Sound.BaseSound
+  private fireKey?: 'fire' | 'fire2'
   // px the sprite is lifted up its racing spot (nitro rides it up the
   // screen so the road appears to rush past faster); the scene eases it
   private liftOffset = 0
@@ -389,20 +393,32 @@ export class Car {
     if (burning) {
       this.fire.play(`${fireSize}-fire`, true)
       // small/medium flames crackle with 'fire'; a large blaze steps up
-      // to 'fire2' — switching sizes swaps one loop for the other
-      const key = fireSize === 'small' ? 'fire' : 'fire2'
-      const other = fireSize === 'small' ? 'fire2' : 'fire'
-      this.scene.sound.stopByKey(other)
-      if (!this.scene.sound.get(key)?.isPlaying)
-        this.scene.sound.play(key, {
+      // to 'fire2'. setHealth runs every frame while burning, so guard on
+      // the tracked instance: only (re)start when the sample changes or
+      // the loop has stopped, or each frame stacks another overlapping
+      // copy and the crackle spams
+      const key: 'fire' | 'fire2' = fireSize === 'small' ? 'fire' : 'fire2'
+      if (this.fireKey !== key || !this.fireSound?.isPlaying) {
+        this.stopFireSound()
+        this.fireKey = key
+        this.fireSound = this.scene.sound.add(key, {
           volume: fireSize === 'small' ? 1 : 0.5,
           loop: true,
         })
+        this.fireSound.play()
+      }
     } else {
-      this.scene.sound.stopByKey('fire')
-      this.scene.sound.stopByKey('fire2')
+      this.stopFireSound()
       this.fire.stop()
     }
+  }
+
+  // silence and drop whichever fire crackle is playing
+  private stopFireSound() {
+    this.fireSound?.stop()
+    this.fireSound?.destroy()
+    this.fireSound = undefined
+    this.fireKey = undefined
   }
 
   // the car is done: hide it (and its damage effects), play the explosion
@@ -411,6 +427,7 @@ export class Car {
     this.sprite.setVisible(false)
     this.smoke.setVisible(false).stop()
     this.fire.setVisible(false).stop()
+    this.stopFireSound()
     this.explosion.setVisible(true).play('explode')
     this.explosion.once('animationcomplete', () => {
       this.explosion.setVisible(false)
@@ -457,6 +474,7 @@ export class Car {
   exit() {
     this.smoke.setVisible(false).stop()
     this.fire.setVisible(false).stop()
+    this.stopFireSound()
     this.scene.tweens.add({
       targets: this.sprite,
       y: OFFSCREEN_Y,

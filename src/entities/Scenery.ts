@@ -98,7 +98,7 @@ export const DECALS: DecalSpec[] = [
     worldWidth: 32,
     dist: [2, 2.5],
     // driving through the big bush smashes it into a leafy burst
-    smash: { z: 10, lane: 0.4, color: 0x4a8f3c },
+    smash: { z: 10, lane: 0.4, color: 0x007244 },
     sizeFrames: [
       { frame: 0, width: 40, yOffset: 3 },
       { frame: 1, width: 29, yOffset: 6 },
@@ -110,14 +110,14 @@ export const DECALS: DecalSpec[] = [
     ],
     variants: {
       // recolour of the base sheet
-      desert: { texture: 'desert-bush2', smashColor: 0xd8b56a },
+      desert: { texture: 'desert-bush2', smashColor: 0x007244 },
       // its own smaller drift shape (18x23 frames)
       snow: {
         texture: 'snow-bush2',
         worldWidth: 14,
         scaleExponent: 0.35,
         weight: 0.25,
-        smashColor: 0xeef4ff,
+        smashColor: 0xd3eeef,
         sizeFrames: [
           { frame: 0, width: 18 },
           { frame: 1, width: 14, yOffset: 2 },
@@ -351,8 +351,7 @@ export class Scenery {
       if (!smash) return true
       if (
         Math.abs(decal.obj.z - playerZ) >= smash.z ||
-        Math.abs(playerLane - decal.obj.laneOffset) >=
-          smash.lane * laneScale()
+        Math.abs(playerLane - decal.obj.laneOffset) >= smash.lane * laneScale()
       ) {
         return true
       }
@@ -364,12 +363,13 @@ export class Scenery {
   }
 
   // a puff of 1px squares thrown up and out from the smash point, arcing
-  // down under gravity and gone in half a second
-  private burst(x: number, y: number, color: number, road: Road) {
+  // down under gravity and gone in half a second (public: the scene
+  // reuses it for smashed turn signs)
+  burst(x: number, y: number, color: number, road: Road) {
     const tint = multiplyColor(color, road.worldTint)
     const parts = Array.from({ length: 10 }, () => ({
       rect: this.scene.add
-        .rectangle(x, y - 1 - Math.random() * 3, 1, 1, tint)
+        .rectangle(x, y - 1 - Math.random() * 3, 4, 4, tint)
         .setDepth(3),
       vx: (Math.random() - 0.5) * 70,
       vy: -15 - Math.random() * 55,

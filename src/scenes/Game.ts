@@ -77,6 +77,7 @@ import {
   TURN_SIGN_LEAD,
   TURN_SIGN_REPEATS,
   TURN_SIGN_SHOULDER,
+  TURN_SIGN_SMASH_SPEED,
 } from '../constants'
 import { Car } from '../entities/Car'
 import { Checkpoint } from '../entities/Checkpoint'
@@ -114,6 +115,8 @@ const OFFROAD_SOUND_VOLUME = 1.5
 const GEAR_MENU_INPUT_DELAY_MS = 400
 const COIN_RATE_EMPTY = 1
 const COIN_RATE_FULL = 2
+// burst colour of a turn sign smashed at speed (the chevron's red)
+const SIGN_SMASH_COLOR = 0xddab2e
 
 // traffic car-following: an NPC closing on a slower one in its lane
 // matches its speed once within this many world units, instead of
@@ -1611,16 +1614,29 @@ export class Game extends Scene {
         car.fall(-side, this.speed)
       }
     }
-    for (const sign of this.turnSigns) {
-      this.collide(
-        sign.z,
-        sign.laneOffset,
-        SIGN_COLLIDE_Z,
-        SIGN_COLLIDE_LANE * laneScale(),
-        0,
-        0.5,
-      )
-    }
+    // turn signs: fast enough and a hit sign shatters — the car ploughs
+    // through with a light scrub and rattle instead of the hard stop
+    this.turnSigns = this.turnSigns.filter((sign) => {
+      const halfLane = SIGN_COLLIDE_LANE * laneScale()
+      if (this.speed >= TURN_SIGN_SMASH_SPEED) {
+        if (
+          Math.abs(sign.z - (this.distance + PLAYER_Z)) < SIGN_COLLIDE_Z &&
+          Math.abs(this.playerX - sign.laneOffset) < halfLane
+        ) {
+          const p = this.road.project(sign.z, sign.laneOffset)
+          this.scenery.burst(p.screenX, p.screenY, SIGN_SMASH_COLOR, this.road)
+          this.takeDamage(this.speed * 0.3, 0.5)
+          this.speed *= 0.93
+          this.impactSkidTime = IMPACT_SKID_TIME
+          this.car.jolt()
+          sign.destroy()
+          return false
+        }
+        return true
+      }
+      this.collide(sign.z, sign.laneOffset, SIGN_COLLIDE_Z, halfLane, 0, 0.5)
+      return true
+    })
     // solid scenery (tree trunks) hits like the static signs do
     this.scenery.forEachCollider((z, lane, halfZ, halfLane) => {
       this.collide(z, lane, halfZ, halfLane, 0)

@@ -156,6 +156,10 @@ export const TURN_SIGN_LEAD = 600
 // road narrows between levels, rather than a fixed lane fraction that
 // crowds the tarmac on the narrow desert/snow roads
 export const TURN_SIGN_SHOULDER = 30
+// at or above this speed (internal units) a hit turn sign shatters into
+// a burst and the car ploughs through with a light scrub; below it the
+// sign is as solid as ever
+export const TURN_SIGN_SMASH_SPEED = 300
 
 // floating coins: every big turn gets a run of COINS_PER_TURN coins
 // spread evenly through the bend on a random lane. Each coin floats

@@ -18,7 +18,7 @@ import {
   STAR_FADE_EXP,
 } from '../constants'
 import { world } from '../world'
-import { Track, TurnWarning } from './Track'
+import { CoinRun, Track, TurnWarning } from './Track'
 
 const lerp = (a: number, b: number, p: number) => a + (b - a) * p
 
@@ -133,6 +133,10 @@ export class Road {
 
   drainTurnWarnings(): TurnWarning[] {
     return this.track.drainTurnWarnings()
+  }
+
+  drainCoinRuns(): CoinRun[] {
+    return this.track.drainCoinRuns()
   }
 
   // level theming: blend the ground palette toward the level's colours

@@ -26,8 +26,16 @@ export interface TurnWarning {
   direction: -1 | 1
 }
 
+// a curved section chosen to carry coins: where its bend begins and how
+// long it runs, so the scene can spread a run of coins through it
+export interface CoinRun {
+  z: number
+  length: number
+}
+
 // curve magnitude (see addSection's tiers) above which a turn counts as
-// "big" and gets warning signs placed before it
+// "big": it gets warning signs placed before it and a run of coins
+// spread through it
 const BIG_TURN_THRESHOLD = 0.3
 
 const easeIn = (a: number, b: number, p: number) => a + (b - a) * p * p
@@ -52,6 +60,8 @@ export class Track {
   private lastCurve = 0
   // big turns generated so far but not yet consumed by the caller
   private pendingTurns: TurnWarning[] = []
+  // coin-carrying turns generated but not yet consumed
+  private pendingCoinRuns: CoinRun[] = []
 
   constructor() {
     this.reset()
@@ -63,6 +73,7 @@ export class Track {
     this.genY = 0
     this.lastCurve = 0
     this.pendingTurns = []
+    this.pendingCoinRuns = []
     // a long, flat opening straightaway before the generator takes over
     for (let n = 0; n < 75; n++) this.pushSegment(0, this.genY, this.genY)
   }
@@ -115,6 +126,14 @@ export class Track {
     const turns = this.pendingTurns
     this.pendingTurns = []
     return turns
+  }
+
+  // returns and clears any coin-carrying turns generated since the last
+  // call
+  drainCoinRuns(): CoinRun[] {
+    const runs = this.pendingCoinRuns
+    this.pendingCoinRuns = []
+    return runs
   }
 
   // segment by absolute index (undefined once outside the queue)
@@ -192,6 +211,15 @@ export class Track {
       : straightMin + Math.floor(Math.random() * (straightMax - straightMin))
     const leave = isCurve ? 8 + Math.floor(Math.random() * 10) : 0
     const total = enter + hold + leave
+
+    // every big turn (the same sharpness that earns warning signs)
+    // carries a run of coins spread through it
+    if (Math.abs(curve) >= BIG_TURN_THRESHOLD) {
+      this.pendingCoinRuns.push({
+        z: (this.firstIndex + this.segments.length) * SEGMENT_LENGTH,
+        length: total * SEGMENT_LENGTH,
+      })
+    }
 
     const startY = this.genY
     const endY = startY + hill

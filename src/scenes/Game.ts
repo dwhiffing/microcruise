@@ -17,9 +17,7 @@ import {
   COAST_DECEL,
   COIN_COLLIDE_LANE,
   COIN_COLLIDE_Z,
-  COIN_GAP,
-  COIN_INTERVAL,
-  COIN_ROW_COUNT,
+  COINS_PER_TURN,
   COLLIDE_CLEARANCE,
   COLLISION_DAMAGE,
   DAMAGE_COOLDOWN,
@@ -254,7 +252,7 @@ export class Game extends Scene {
 
   private get score() {
     return Phaser.Math.Clamp(
-      Math.floor((this.distance - this.runStartDistance) / 1000),
+      Math.floor((this.distance - this.runStartDistance) / 250),
       0,
       MAX_SCORE,
     )
@@ -766,9 +764,11 @@ export class Game extends Scene {
     this.nextCheckpointZ = this.distance + this.checkpointInterval
     this.checkpoints.forEach((gantry) => gantry.destroy())
     this.checkpoints = []
-    this.nextCoinZ = this.distance + COIN_INTERVAL
     this.coins.forEach((coin) => coin.destroy())
     this.coins = []
+    // coin-turns flagged during the menu cruise are already behind or
+    // mid-view — discard them so the run starts clean
+    this.road.drainCoinRuns()
 
     this.isGameOver = false
     // TODO: re-enable music
@@ -1377,15 +1377,16 @@ export class Game extends Scene {
     })
   }
 
-  // coin rows appear over a random lane at fixed track intervals; driving
-  // through a coin banks its points onto the score
+  // coins ride the bends: every few turns the track flags one (see
+  // Track), and a run of coins spreads evenly through it on a random
+  // lane; driving through a coin banks its points onto the score
   private updateCoins() {
-    if (this.nextCoinZ - this.distance < 2000) {
+    for (const run of this.road.drainCoinRuns()) {
       const lane = ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
-      for (let i = 0; i < COIN_ROW_COUNT; i++) {
-        this.coins.push(new Coin(this, this.nextCoinZ + i * COIN_GAP, lane))
+      const gap = run.length / COINS_PER_TURN
+      for (let i = 0; i < COINS_PER_TURN; i++) {
+        this.coins.push(new Coin(this, run.z + i * gap, lane))
       }
-      this.nextCoinZ += COIN_INTERVAL
     }
     this.scrollCoins(true)
   }

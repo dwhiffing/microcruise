@@ -157,14 +157,10 @@ export const TURN_SIGN_LEAD = 600
 // crowds the tarmac on the narrow desert/snow roads
 export const TURN_SIGN_SHOULDER = 30
 
-// floating coins: a row of COIN_ROW_COUNT spawns over a random lane
-// every COIN_INTERVAL world units, coins COIN_GAP apart; driving through
-// one banks COIN_POINTS onto the score. Each coin floats COIN_HOVER
-// world units off the tarmac
-export const COIN_POINTS = 10
-export const COIN_INTERVAL = 1500
-export const COIN_ROW_COUNT = 5
-export const COIN_GAP = 60
+// floating coins: every big turn gets a run of COINS_PER_TURN coins
+// spread evenly through the bend on a random lane. Each coin floats
+// COIN_HOVER world units off the tarmac
+export const COINS_PER_TURN = 6
 export const COIN_WORLD_WIDTH = 20
 export const COIN_HOVER = 2
 // collection box, same convention as the collision boxes: length along

@@ -161,7 +161,7 @@ export class Boot extends Scene {
     this.load.audio('fire', 'fire.wav')
     this.load.audio('fire2', 'fire2.wav')
     this.load.audio('coin', 'coin.wav')
-    this.load.audio('music', 'music-crispy.mp3')
+    this.load.audio('music', 'music-emplified-grand-prix.mp3')
     // wav, not mp3: encoder padding puts a gap at mp3 loop points
     this.load.audio('engine', 'engine.wav')
     this.load.audio('checkpoint', 'checkpoint.wav')

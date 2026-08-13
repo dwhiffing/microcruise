@@ -53,7 +53,6 @@ import {
   NITRO_MAX_MS,
   NITRO_PER_COIN_MS,
   NITRO_SHAKE,
-  NITRO_VOLUME,
   OFFROAD_ACCEL_FACTOR,
   OFFROAD_DECEL,
   OFFROAD_MAX_SPEED,
@@ -203,6 +202,8 @@ export class Game extends Scene {
   private cruisePace = MENU_DRIVE_SPEED // stateful, so speed never steps
   private runStartDistance = 0 // the score counts from here
   private highScore = 0
+  // audio mute mode: 0 = all on, 1 = music muted (SFX on), 2 = all muted
+  private muteMode = 0
 
   constructor() {
     super('Game')
@@ -262,14 +263,13 @@ export class Game extends Scene {
   create(): void {
     this.cameras.main.fadeFrom(500, 0, 0, 0)
     this.music = this.sound.add('music', { loop: true, volume: 0.3 })
-    this.music.pause()
+    this.music.play()
     this.engineSound = this.sound.add('engine', {
       loop: true,
       volume: ENGINE_VOLUME,
     }) as Phaser.Sound.WebAudioSound
     this.nitroSound = this.sound.add('nitro', {
       loop: false,
-      volume: NITRO_VOLUME,
     }) as Phaser.Sound.WebAudioSound
     // the screech is split into two markers: the bite at the start
     // plays once, then the steady middle loops while the drift holds
@@ -384,15 +384,19 @@ export class Game extends Scene {
       })
     }
 
+    // M cycles the audio through three modes: 0 = everything on, 1 = mute
+    // music only (SFX still play), 2 = mute all
     this.input.keyboard!.on('keydown-M', () => {
-      const newMute = !this.game.sound.mute
-      this.game.sound.setMute(newMute)
-      localStorage.setItem('mute', String(newMute))
+      this.applyMuteMode((this.muteMode + 1) % 3)
     })
-
-    const muteStatus = localStorage.getItem('mute')
-    if (muteStatus !== null) {
-      this.game.sound.setMute(muteStatus === 'true')
+    // restore the saved mode (older builds stored a 'true'/'false' mute
+    // flag under a different key — read it as a fallback for a smooth
+    // upgrade, mapping true -> mute all)
+    const savedMode = localStorage.getItem('muteMode')
+    if (savedMode !== null) {
+      this.applyMuteMode(Number(savedMode) || 0)
+    } else {
+      this.applyMuteMode(localStorage.getItem('mute') === 'true' ? 2 : 0)
     }
 
     this.input.keyboard!.on('keydown', (e: KeyboardEvent) => {
@@ -410,7 +414,7 @@ export class Game extends Scene {
       // (two options, so any arrow toggles); x/z confirm and start
       if (this.gearMenuOpen && isArrow) {
         this.autoShift = !this.autoShift
-        this.sound.play('select')
+        this.sound.play('select', { volume: 2 })
         this.ui.setGearMenu(this.autoShift)
         return
       }
@@ -580,7 +584,7 @@ export class Game extends Scene {
   // freeze the world while the explosion plays, then show the menu
   private die() {
     this.paused = true
-    this.sound.play('explode', { volume: 1 })
+    this.sound.play('explode', { volume: 1.5 })
     this.car.explode(this.gameOver)
   }
 
@@ -597,7 +601,7 @@ export class Game extends Scene {
       this.gearMenuOpen = true
       this.gearMenuOpenedAt = this.time.now
       this.ui.showGearMenu(this.autoShift)
-      this.sound.play('keys', { volume: 2 })
+      this.sound.play('keys', { volume: 2.5 })
       this.startPending = true
 
       this.menuTarget = this.road.straightenAhead()
@@ -636,7 +640,7 @@ export class Game extends Scene {
       // the ignition turns over, and the engine catches partway through:
       // fading in as the camera pulls into position; launchRun() then
       // pitches it to the rolling-start rev
-      this.ignitionSound.play({ volume: 0.7 })
+      this.ignitionSound.play({ volume: 0.65 })
       this.time.delayedCall(500, () => {
         this.ui.flashGearChoice(this.autoShift, 7, 800)
         this.distance += Math.max(0, this.menuTarget - this.distance) * 0.85
@@ -815,7 +819,6 @@ export class Game extends Scene {
     this.carEntering = false
     this.ui.hideHud()
     this.car.exit()
-    this.music.pause()
     this.engineSound.stop()
     if (this.driftSoundOn) this.stopDriftSound()
     if (this.nitroSoundOn) {
@@ -1120,7 +1123,7 @@ export class Game extends Scene {
 
   private startNitroSound() {
     this.tweens.killTweensOf(this.nitroSound)
-    this.nitroSound.play({ loop: false, volume: NITRO_VOLUME })
+    this.nitroSound.play({ loop: false, volume: 0.7 })
   }
 
   private stopNitroSound() {
@@ -1130,6 +1133,18 @@ export class Game extends Scene {
       duration: 250,
       onComplete: () => this.nitroSound.stop(),
     })
+  }
+
+  // set the audio mute mode and persist it. 0 = everything on, 1 = music
+  // muted but SFX on, 2 = everything muted. Music is muted on its own
+  // sound object so mode 1 leaves the global mute off for the SFX
+  private applyMuteMode(mode: number) {
+    this.muteMode = mode
+    this.game.sound.setMute(mode === 2)
+    // BaseSound's typings omit the mute setter that every concrete sound
+    // implements, so reach it through the wider interface
+    ;(this.music as Phaser.Sound.WebAudioSound).setMute(mode >= 1)
+    localStorage.setItem('muteMode', String(mode))
   }
 
   // tap the brake while fast and turned hard to kick into a drift: the car
@@ -1342,7 +1357,7 @@ export class Game extends Scene {
       if (gantry.z < this.distance) {
         this.timeLeft = Math.min(MAX_TIME, this.timeLeft + CHECKPOINT_BONUS)
         this.health = Math.min(MAX_HEALTH, this.health + CHECKPOINT_REPAIR)
-        this.sound.play('checkpoint', { volume: 1.5, rate: 1 })
+        this.sound.play('checkpoint', { volume: 2, rate: 1 })
         this.car.setHealth(this.health)
         this.car.onCheckpoint()
         this.ui.showTimeBonus(CHECKPOINT_BONUS)
@@ -1354,7 +1369,6 @@ export class Game extends Scene {
           Math.floor(this.checkpointsCrossed / CHECKPOINTS_PER_LEVEL),
         )
         if (next !== this.level) this.setLevel(next)
-        this.sound.play('select', { volume: 0.5 })
         gantry.destroy()
         return false
       }
@@ -1406,7 +1420,7 @@ export class Game extends Scene {
     // pitch, so filling up sweeps upward and a full tank always tops out
     const fill = this.nitroMs / NITRO_MAX_MS
     this.sound.play('coin', {
-      volume: 0.5,
+      volume: 0.85,
       rate: COIN_RATE_EMPTY + fill * (COIN_RATE_FULL - COIN_RATE_EMPTY),
     })
     this.car.emitCoin()

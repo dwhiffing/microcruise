@@ -65,7 +65,7 @@ export const RPM_CURVE = 3
 // engine sound: one looping sample (a low-RPM on-throttle loop) is
 // pitch-bent across the rev range — the playback rate slides between
 // these bounds as the RPM bar goes 0 to redline
-export const ENGINE_VOLUME = 0.15
+export const ENGINE_VOLUME = 0.1
 export const ENGINE_RATE_MIN = 0.4
 export const ENGINE_RATE_MAX = 0.7
 // automatic transmission: shifts up at redline under throttle and back
@@ -89,7 +89,6 @@ export const NITRO_ACCEL_FACTOR = 5
 export const NITRO_LIFT = 4
 export const NITRO_LIFT_RATE = 8
 export const NITRO_SHAKE = 0.15
-export const NITRO_VOLUME = 0.4
 export const NITRO_PER_COIN_MS = 350
 export const NITRO_MAX_MS = NITRO_PER_COIN_MS * 11
 export const SPEED_LINE_COUNT = 20

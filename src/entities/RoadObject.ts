@@ -105,7 +105,7 @@ export class RoadObject {
       this.laneOffset,
     )
 
-    if ((!visible && !this.ignoreOcclusion) || scale <= 0) {
+    if (scale <= 0) {
       this.sprite.setVisible(false)
       return
     }
@@ -169,8 +169,15 @@ export class RoadObject {
     } else {
       this.sprite.setScale(spriteScale)
     }
-    // nearer objects (bigger scale) draw over farther ones
-    this.sprite.setDepth(scale)
+    // nearer objects (bigger scale) draw over farther ones. An object
+    // occluded by a terrain crest isn't hidden — it drops into the
+    // (-1, 0) band behind the road fill (and in front of the sky), so
+    // the hill covers exactly the part below the silhouette and a tall
+    // object's top still peeks over. The map into the band keeps
+    // near-over-far ordering among occluded objects
+    this.sprite.setDepth(
+      visible || this.ignoreOcclusion ? scale : -1 + scale / (scale + 1),
+    )
   }
 
   // play a one-shot animation on the sprite (crash effects, etc.)

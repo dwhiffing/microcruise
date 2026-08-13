@@ -53,6 +53,11 @@ interface SegQuad {
 // Anything a quarter-pixel of slack wrongly reveals is within 0.25px of
 // the terrain silhouette: invisible at this resolution
 const OCCLUSION_SLACK = 0.25
+// occlusion only applies to points at least this far (screen px) below
+// the horizon row: everything nearer the horizon is always shown, so the
+// distant dots clustered around it hold steady over rolling terrain
+// instead of blinking behind every little crest
+const OCCLUSION_MIN_DROP = 1
 
 // renders the track as a pseudo-3D road: sweeps the visible segments each
 // frame into filled trapezoids, scrolls the sky, and projects world-space
@@ -325,7 +330,9 @@ export class Road {
       screenX,
       screenY,
       scale,
-      visible: screenY < seg.clipY + OCCLUSION_SLACK,
+      visible:
+        screenY < HORIZON_Y + OCCLUSION_MIN_DROP ||
+        screenY < seg.clipY + OCCLUSION_SLACK,
     }
   }
 

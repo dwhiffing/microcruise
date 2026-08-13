@@ -440,10 +440,11 @@ export class Car {
     this.sprite.y = OFFSCREEN_Y
   }
 
-  // drive in from below and brake into the starting position: the ease
-  // overshoots past the mark and settles back, reading as a hard stop.
-  // The car swings in at a slight angle (random side) and straightens
-  // through the lean frames as it brakes.
+  // drive in from below into the starting position for a rolling start:
+  // a smooth ease that settles into place without the overshoot that
+  // read as a hard stop. The car swings in at a slight angle (random
+  // side) and straightens through the lean frames as it arrives — no
+  // brake, so no tire smoke.
   enter(onComplete: () => void, onSkid?: (wheelY: number) => void) {
     this.currentFrame = 2
     this.facing = Math.random() < 0.5 ? -1 : 1
@@ -452,16 +453,15 @@ export class Car {
       targets: this.sprite,
       y: HOME_Y,
       duration: 700,
-      ease: 'Back.easeOut',
+      ease: 'Sine.easeOut',
       onUpdate: (tween) => {
         const frame = tween.progress > 0.85 ? 0 : tween.progress > 0.6 ? 1 : 2
         if (frame !== this.currentFrame) {
           this.currentFrame = frame
           this.applyFrame()
         }
-        // the tires bite once the braking phase of the entrance begins;
-        // the hook lets the scene lay skid marks under the rear wheels
-        this.emitTireSmoke()
+        // the hook lets the scene lay skid marks under the rear wheels as
+        // the car rolls in
         onSkid?.(this.sprite.y + 8)
       },
       onComplete,

@@ -209,6 +209,12 @@ export class UI {
   // fade the whole HUD in together, each element toward its own resting
   // alpha — timed to run while the car drives in
   showHud(duration = 700) {
+    // a fresh run: clear any pending timer-fade from the last run and
+    // force the next setTimer to re-apply, so the clock fades in with the
+    // rest of the HUD instead of being suppressed by the value cache
+    this.timerFade?.stop()
+    this.timerFade = undefined
+    this.lastTimer = -1
     this.hud.forEach(({ obj, alpha }) => {
       obj.setVisible(true)
       obj.setAlpha(0)

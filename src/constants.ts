@@ -79,6 +79,9 @@ export const TOP_SPEED_MPH = 215
 export const REFERENCE_SPEED = 300
 export const ACCEL = 50
 export const BRAKE = 300
+// rolling start: the run begins at this speed (mph on the gauge) instead
+// of from a standstill, so the car enters already moving
+export const START_SPEED_MPH = 60
 // nitro: held space bar multiplies the throttle's pull by this factor.
 // It doesn't raise any gear's ceiling — the car just reaches its normal
 // top speed faster
@@ -172,7 +175,7 @@ export const COIN_COLLIDE_LANE = 0.25
 
 // debug: skip the 3-2-1 countdown and start driving as soon as the car
 // pulls in
-export const SKIP_COUNTDOWN = true
+export const SKIP_COUNTDOWN = false
 export const DEBUG_KEYS = SKIP_COUNTDOWN
 
 // seconds on the countdown clock; reaching zero ends the run

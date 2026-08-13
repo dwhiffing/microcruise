@@ -69,6 +69,7 @@ import {
   SIGN_COLLIDE_Z,
   SKIP_COUNTDOWN,
   SLOPE_DRAG,
+  START_SPEED_MPH,
   STEER_RATE,
   STEER_RETURN,
   STEER_SPEED,
@@ -109,7 +110,6 @@ const MENU_DRIVE_ACCEL = 300
 const MENU_BRAKE_DECEL = 900
 const DRIFT_SOUND_VOLUME = 0.9
 const BRAKE_SOUND_RATE = 0.85
-const ENTER_BRAKE_MS = 80
 // the transmission picker ignores input for this long after opening, so
 // the press that opened it (or a quick double-tap) can't instantly
 // toggle or confirm
@@ -128,6 +128,13 @@ const OVERTAKE_GAP = 250
 // traffic — each waits a random 4-9s between changes
 const LANE_WANDER_MIN_S = 4
 const LANE_WANDER_MAX_S = 9
+// the starting pack is scattered ahead across this span, beginning this
+// far in front of the camera — clear of the player so nothing spawns on
+// top of them, spread out so cars trickle into view over the opening
+// seconds instead of all appearing at once. The far end stays inside the
+// +4000 cull window so the pack isn't relocated on the first frame
+const START_TRAFFIC_MIN_AHEAD = 500
+const START_TRAFFIC_SPREAD = 3400
 
 export class Game extends Scene {
   public ui!: UI
@@ -191,6 +198,7 @@ export class Game extends Scene {
   private gearMenuOpenedAt = 0 // for the picker's input-ignore window
   private autoShift = AUTO_SHIFT // transmission choice, from the gear menu
   private startPending = false // start pressed: cruising to the aligned straight
+  private carEntering = false // the car is driving in (roll the road with it)
   private menuTarget = 0 // z where the pre-run straightaway begins
   private cruisePace = MENU_DRIVE_SPEED // stateful, so speed never steps
   private runStartDistance = 0 // the score counts from here
@@ -203,6 +211,16 @@ export class Game extends Scene {
   // the level-scaled speed cap on the player's engine
   private get maxSpeed() {
     return MAX_SPEED * world.maxSpeedFactor
+  }
+
+  // the rolling-start internal speed, and the lowest gear whose ceiling
+  // covers it (so the engine isn't instantly dragging speed back down)
+  private get startSpeed() {
+    return (START_SPEED_MPH / TOP_SPEED_MPH) * MAX_SPEED
+  }
+  private get startGear() {
+    const g = GEAR_MAX.findIndex((f) => f * this.maxSpeed >= this.startSpeed)
+    return g < 0 ? GEAR_MAX.length : g + 1
   }
 
   // progression: apply a level's world parameters. The road width eases
@@ -616,8 +634,8 @@ export class Game extends Scene {
       this.ui.dismissGearChoice(this.autoShift)
 
       // the ignition turns over, and the engine catches partway through:
-      // fading in as the camera pulls into position; the entrance in
-      // beginRun() then brakes it down to idle
+      // fading in as the camera pulls into position; launchRun() then
+      // pitches it to the rolling-start rev
       this.ignitionSound.play({ volume: 0.7 })
       this.time.delayedCall(500, () => {
         this.ui.flashGearChoice(this.autoShift, 7, 800)
@@ -654,28 +672,45 @@ export class Game extends Scene {
       duration: 500,
     })
 
-    // the car drives in right now, while the camera is still braking
-    // into position; the run itself still waits in beginRun() for the
-    // camera to park. Through the entrance's braking phase the revs
-    // fall to idle, punctuated by the brake chirp as the tires bite
+    // the car drives in right now, while the camera settles into
+    // position; the run itself still waits in beginRun() for the camera
+    // to park. It's a rolling start, so the revs hold at the cruising
+    // pitch instead of falling to idle, with no brake chirp
     this.car.reset()
-    this.tweens.add({
-      targets: this.engineSound,
-      rate: ENGINE_RATE_MIN,
-      delay: ENTER_BRAKE_MS,
-      duration: 700 - ENTER_BRAKE_MS,
-      ease: 'Sine.easeOut',
-    })
-    this.time.delayedCall(ENTER_BRAKE_MS, () => {
-      this.tweens.killTweensOf(this.brakeSound)
-      this.brakeSound.setVolume(DRIFT_SOUND_VOLUME)
-      this.brakeSound.play()
-    })
+    // pitch the engine to the rolling-start speed in its starting gear
+    // (the same speed/gear beginRun() sets), so it enters mid-rev
+    const startRpm = Math.pow(
+      this.startSpeed / (GEAR_MAX[this.startGear - 1] * this.maxSpeed),
+      RPM_CURVE,
+    )
+    this.engineSound.setRate(
+      ENGINE_RATE_MIN +
+        Math.min(1, startRpm) * (ENGINE_RATE_MAX - ENGINE_RATE_MIN),
+    )
+    // from here the car is driving in, so the road may roll with it (the
+    // entrance roll in update() waits on this, holding the world still
+    // until the car actually appears rather than the moment the camera
+    // parks)
+    this.carEntering = true
+    // the HUD fades in with the car — showHud first (it resets the timer
+    // state and starts every element at alpha 0 fading up), then seed the
+    // values with the rolling-start speed/gear (from the getters, since
+    // beginRun hasn't set them yet) so nothing flashes 0 or pops in early
+
     // ...then the 3-2-1 countdown; the clock and controls only come
     // alive once it finishes AND the camera has parked (gameplay is
     // gated on menuCruising, so an early unpause just waits)
     this.car.enter(
       () => {
+        this.ui.showHud()
+        this.ui.setSpeed(START_SPEED_MPH)
+        this.ui.setGearHud(this.startGear, 0, 0)
+        this.ui.setNitro(0)
+        this.ui.setTimer(RACE_TIME)
+        // score counts from here — the moment control is handed over —
+        // so the pre-unpause entrance roll doesn't bank distance
+        this.runStartDistance = this.distance
+        this.carEntering = false
         if (true || SKIP_COUNTDOWN) {
           this.paused = false
           return
@@ -685,6 +720,10 @@ export class Game extends Scene {
         })
       },
       (wheelY) => {
+        // don't lay marks until the wheels have actually risen into the
+        // frame — early in the entrance the car is still below the bottom
+        // edge, and a mark there would show on-screen before the car does
+        if (wheelY > GAME_HEIGHT) return
         // map the wheels' screen row back to a world depth on the
         // straightaway — the marks land under the car and scroll away
         // once it's driving
@@ -699,14 +738,16 @@ export class Game extends Scene {
   // the camera has parked in the straightaway: reset the run state and
   // play the intro (car drives in, countdown), continuing from this spot
   private beginRun() {
-    this.speed = 0
+    // rolling start: begin already moving, in a gear that covers the
+    // start speed (see the startSpeed/startGear getters)
+    this.speed = this.startSpeed
+    this.gear = this.startGear
     this.carLift = 0
     this.nitroMs = 0
     this.nitroActive = false
     this.playerX = 0
     this.steerValue = 0
     this.driftDir = 0
-    this.gear = 1
     this.bounceVx = 0
     this.health = MAX_HEALTH
     this.damageCooldown = 0
@@ -714,7 +755,7 @@ export class Game extends Scene {
     // (the car was already reset and sent driving in at gear confirm)
     this.timeLeft = RACE_TIME
     this.outOfTime = false
-    this.ui.setTimer(RACE_TIME)
+    // (setTimer already ran in launchRun, seeding the timer for its fade)
     this.runStartDistance = this.distance
     this.checkpointsCrossed = 0
     if (this.level !== 0) this.setLevel(0)
@@ -728,21 +769,50 @@ export class Game extends Scene {
     this.isGameOver = false
     // TODO: re-enable music
     // this.music.play()
-    // traffic re-scatters just behind the camera (inside the cull line
-    // at -100), so the pack streams up past the player as the run gets
-    // rolling instead of waiting somewhere over the horizon
-    for (const car of this.traffic) {
-      this.respawnCar(car, -90, 70)
+    // string the starting pack out across the road ahead — from a safe
+    // clearance in front of the camera out toward the horizon — so the
+    // player closes on them one at a time over the opening seconds
+    // instead of a wall of cars appearing at once. Each car owns one
+    // slice of that span, jittered within it, so they don't line up in a
+    // row. All ahead (never right in front), so no instant rear-end, and
+    // all inside the cull window so the pack isn't relocated next frame
+    const count = this.traffic.length
+    const shuffled = [...this.traffic].sort(() => Math.random() - 0.5)
+    shuffled.forEach((car, i) => {
+      const t = (i + Math.random()) / count
+      const startZ =
+        this.distance + START_TRAFFIC_MIN_AHEAD + t * START_TRAFFIC_SPREAD
+      this.respawnStartCar(car, startZ)
+    })
+    // (the HUD already began fading in when the car started driving in,
+    // in launchRun)
+  }
+
+  // place a car at a specific z for the staggered run start (respawnCar's
+  // random band would re-cluster them), rolling a fresh speed/lane/vehicle
+  private respawnStartCar(car: NpcCar, z: number) {
+    car.baseSpeed =
+      TRAFFIC_MIN_SPEED +
+      Math.random() * (TRAFFIC_MAX_SPEED - TRAFFIC_MIN_SPEED)
+    car.rubberBand = 0.6 + Math.random() * 0.3
+    for (let tries = 0; tries < 6; tries++) {
+      car.z = z
+      car.laneOffset =
+        ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+      if (!this.laneBlocked(car, FOLLOW_GAP * 2)) break
+      // nudge along the road on a clash rather than stacking in place
+      z += FOLLOW_GAP * 2
     }
-    // the whole HUD fades in with fresh values (the car entrance is
-    // already underway — it started when the transmission was confirmed)
-    this.ui.setSpeed(0)
-    this.ui.setGearHud(1, 0, 0)
-    this.ui.showHud()
+    car.targetLane = car.laneOffset
+    car.laneChangeIn =
+      LANE_WANDER_MIN_S +
+      Math.random() * (LANE_WANDER_MAX_S - LANE_WANDER_MIN_S)
+    car.randomizeVehicle()
   }
 
   gameOver = () => {
     this.paused = true
+    this.carEntering = false
     this.ui.hideHud()
     this.car.exit()
     this.music.pause()
@@ -793,13 +863,13 @@ export class Game extends Scene {
       MENU_DRIVE_SPEED,
     )
     if (this.startPending) {
-      // constant-deceleration brake: hold the speed that stops exactly at
-      // the target — one long smooth squeeze, no kink at the end (the
-      // small floor covers the last half-pixel)
+      // constant-deceleration brake down to the rolling-start speed (not
+      // to a stop) so the camera is still moving at the handoff and the
+      // road scroll carries straight into the run with no dead beat
       const remaining = Math.max(0, this.menuTarget - this.distance)
       pace = Math.min(
         pace,
-        Math.max(30, Math.sqrt(2 * MENU_BRAKE_DECEL * remaining)),
+        Math.max(this.startSpeed, Math.sqrt(2 * MENU_BRAKE_DECEL * remaining)),
       )
     }
     this.cruisePace = pace
@@ -850,7 +920,22 @@ export class Game extends Scene {
       this.updateMenuCruise((delta / 1000) * this.timeScale)
       return
     }
-    if (this.paused) return
+    if (this.paused) {
+      // the car is driving in (paused until its entrance completes): roll
+      // the road at the start speed so it glides continuously into the
+      // run. Gated on carEntering, so if the camera parks before the car
+      // actually appears the world holds still until it does
+      if (this.carEntering) {
+        const dt = (delta / 1000) * this.timeScale
+        this.distance += this.startSpeed * dt
+        this.road.update(this.distance, this.playerX, dt)
+        this.skidMarks.update(this.road, this.distance)
+        this.scenery.update(this.road, this.distance)
+        this.updateTurnSigns()
+        this.resizeTraffic(dt, this.startSpeed)
+      }
+      return
+    }
 
     const dt = (delta / 1000) * this.timeScale
     const offRoad = Math.abs(this.playerX) > 1

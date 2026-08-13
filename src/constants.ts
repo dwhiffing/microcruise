@@ -195,7 +195,7 @@ export const TRAFFIC_MAX_SPEED = 550
 // count half the car's speed as impact). Below 50% the car smokes, below
 // 25% it burns too, and at 0 it explodes and the run ends.
 export const MAX_HEALTH = 100
-export const COLLISION_DAMAGE = 100
+export const COLLISION_DAMAGE = 130
 // seconds of invulnerability after a hit, so one crash (which can overlap
 // the collision box for several frames) only costs damage once
 export const DAMAGE_COOLDOWN = 0.5

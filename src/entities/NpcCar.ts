@@ -77,7 +77,7 @@ export const VEHICLES: VehicleSpec[] = [
     hasLean: false,
     speedFactor: 0.8,
     scaleExponent: 0.7,
-    damageFactor: 1.3,
+    damageFactor: 1.1,
     sizeFrames: [
       { frame: 0, width: 22, yOffset: 7 },
       { frame: 1, width: 20, yOffset: 8 },
@@ -100,7 +100,7 @@ export const VEHICLES: VehicleSpec[] = [
     hasLean: false,
     speedFactor: 0.65,
     scaleExponent: 0.62,
-    damageFactor: 1.6,
+    damageFactor: 1.3,
     sizeFrames: [
       { frame: 0, width: 31, yOffset: 3 },
       { frame: 1, width: 27, yOffset: 6 },

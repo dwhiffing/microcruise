@@ -1610,6 +1610,7 @@ export class Game extends Scene {
         SIGN_COLLIDE_Z,
         SIGN_COLLIDE_LANE * laneScale(),
         0,
+        0.5,
       )
     }
     // solid scenery (tree trunks) hits like the static signs do

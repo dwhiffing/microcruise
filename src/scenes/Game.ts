@@ -107,6 +107,7 @@ const MENU_DRIVE_ACCEL = 300
 const MENU_BRAKE_DECEL = 900
 const DRIFT_SOUND_VOLUME = 0.9
 const BRAKE_SOUND_RATE = 0.85
+const OFFROAD_SOUND_VOLUME = 1.5
 // the transmission picker ignores input for this long after opening, so
 // the press that opened it (or a quick double-tap) can't instantly
 // toggle or confirm
@@ -144,6 +145,9 @@ export class Game extends Scene {
   // the drift screech: attack marker once, sustain marker looping
   private driftSound!: Phaser.Sound.WebAudioSound
   private driftSoundOn = false
+  // the offroad rumble: loops while rolling on the grass
+  private offroadSound!: Phaser.Sound.WebAudioSound
+  private offroadSoundOn = false
   // the brake chirp: its own instance of the screech, so it can be cut
   // early once the car has shed its speed
   private brakeSound!: Phaser.Sound.WebAudioSound
@@ -269,6 +273,10 @@ export class Game extends Scene {
     this.nitroSound = this.sound.add('nitro', {
       loop: false,
     }) as Phaser.Sound.WebAudioSound
+    this.offroadSound = this.sound.add('offroad', {
+      loop: true,
+      volume: OFFROAD_SOUND_VOLUME,
+    }) as Phaser.Sound.WebAudioSound
     // the screech is split into two markers: the bite at the start
     // plays once, then the steady middle loops while the drift holds
     this.driftSound = this.sound.add('drift') as Phaser.Sound.WebAudioSound
@@ -283,7 +291,7 @@ export class Game extends Scene {
       name: 'sustain',
       start: DRIFT_SOUND_ATTACK,
       duration: this.driftSound.totalDuration - DRIFT_SOUND_ATTACK,
-      config: { volume: DRIFT_SOUND_VOLUME, loop: true },
+      config: { volume: DRIFT_SOUND_VOLUME, loop: false },
     })
     this.brakeSound = this.sound.add('drift', {
       volume: DRIFT_SOUND_VOLUME,
@@ -825,6 +833,12 @@ export class Game extends Scene {
       this.nitroSoundOn = false
       this.stopNitroSound()
     }
+    // a run can end on the grass — fade the rumble like a normal exit
+    // (the update loop is paused now, so its edge detector won't fire)
+    if (this.offroadSoundOn) {
+      this.offroadSoundOn = false
+      this.stopOffroadSound()
+    }
 
     // reset the world back to level 1 right away, so the road/scenery/
     // skyline are already easing back to grass through the game-over
@@ -941,7 +955,7 @@ export class Game extends Scene {
     }
 
     const dt = (delta / 1000) * this.timeScale
-    const offRoad = Math.abs(this.playerX) > 1
+    const offRoad = Math.abs(this.playerX) > 1.15
     this.damageCooldown = Math.max(0, this.damageCooldown - dt)
     this.impactSkidTime = Math.max(0, this.impactSkidTime - dt)
 
@@ -1019,12 +1033,27 @@ export class Game extends Scene {
     )
     // the looping screech follows drifts and launch burnouts alike,
     // sustaining as long as either holds — however it ends (release,
-    // countersteer, timeout, an impact, or the tires gripping)
+    // countersteer, timeout, an impact, or the tires gripping). Never on
+    // the grass: tires can't screech on dirt, the rumble owns it there
     const drifting = this.driftDir !== 0
-    const screeching = drifting || launching
+    const screeching = (drifting || launching) && !offRoad
     if (screeching !== this.driftSoundOn) {
       // launches don't loop: the screech plays once and rings out
-      screeching ? this.startDriftSound(drifting) : this.stopDriftSound()
+      screeching ? this.startDriftSound() : this.stopDriftSound()
+    }
+    // the offroad rumble loops while the car is actually rolling on the
+    // grass, and fades out (rather than cutting) once back on tarmac or
+    // slowed to a crawl
+    const rumbling = offRoad && this.speed > 20
+    if (rumbling !== this.offroadSoundOn) {
+      this.offroadSoundOn = rumbling
+      if (rumbling) {
+        // play() resets currentConfig, so the volume rides the call
+        this.tweens.killTweensOf(this.offroadSound)
+        this.offroadSound.play({ loop: true, volume: OFFROAD_SOUND_VOLUME })
+      } else {
+        this.stopOffroadSound()
+      }
     }
     // hard braking fires the whole screech once per press (no loop),
     // slightly lower-pitched — unless the loop owns the sound already
@@ -1100,13 +1129,13 @@ export class Game extends Scene {
   // release fade out instead of cutting — a short drift chirps, a long
   // one sustains. Drifts loop the sustain for as long as they hold; a
   // launch plays it once through and lets it end
-  private startDriftSound(loop = true) {
+  private startDriftSound() {
     this.driftSoundOn = true
     this.tweens.killTweensOf(this.driftSound)
     this.driftSound.setVolume(DRIFT_SOUND_VOLUME)
     this.driftSound.play('attack')
     this.driftSound.once('complete', () => {
-      if (this.driftSoundOn) this.driftSound.play('sustain', { loop })
+      if (this.driftSoundOn) this.driftSound.play('sustain', { loop: false })
     })
   }
 
@@ -1132,6 +1161,17 @@ export class Game extends Scene {
       volume: 0,
       duration: 250,
       onComplete: () => this.nitroSound.stop(),
+    })
+  }
+
+  // the offroad rumble fades out rather than cutting when the tires
+  // find tarmac again (or the run ends out on the grass)
+  private stopOffroadSound() {
+    this.tweens.add({
+      targets: this.offroadSound,
+      volume: 0,
+      duration: 250,
+      onComplete: () => this.offroadSound.stop(),
     })
   }
 

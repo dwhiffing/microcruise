@@ -89,7 +89,7 @@ export const NITRO_ACCEL_FACTOR = 5
 export const NITRO_LIFT = 4
 export const NITRO_LIFT_RATE = 8
 export const NITRO_SHAKE = 0.15
-export const NITRO_PER_COIN_MS = 350
+export const NITRO_PER_COIN_MS = 220
 export const NITRO_MAX_MS = NITRO_PER_COIN_MS * 11
 export const SPEED_LINE_COUNT = 20
 export const SPEED_LINE_RADIAL = 90
@@ -106,9 +106,9 @@ export const COAST_DECEL = 30
 // with the clock at 0 the car drags itself down at this multiple of the
 // normal coast deceleration (the taillights light while it does)
 export const OUT_OF_TIME_DECEL_FACTOR = 3
-export const OFFROAD_MAX_SPEED = 85
-export const OFFROAD_DECEL = 350
-export const OFFROAD_ACCEL_FACTOR = 0.4
+export const OFFROAD_MAX_SPEED = 120
+export const OFFROAD_DECEL = 150
+export const OFFROAD_ACCEL_FACTOR = 0.75
 // max camera jitter (px) while off-road at speed
 export const OFFROAD_SHAKE = 0.2
 // camera jitter (px) while the tires are smoking (launch/braking)

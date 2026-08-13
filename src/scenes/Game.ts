@@ -1625,6 +1625,8 @@ export class Game extends Scene {
     this.scenery.forEachCollider((z, lane, halfZ, halfLane) => {
       this.collide(z, lane, halfZ, halfLane, 0)
     })
+    // soft scenery (big bushes) just bursts and vanishes — no damage
+    this.scenery.smashAt(this.road, this.distance + PLAYER_Z, this.playerX)
   }
 
   // rattle the car (not the camera) while off-road at speed — ramping in

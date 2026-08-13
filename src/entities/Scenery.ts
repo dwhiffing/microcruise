@@ -1,5 +1,5 @@
 import { laneScale, world } from '../world'
-import { Road } from './Road'
+import { multiplyColor, Road } from './Road'
 import { RoadObject } from './RoadObject'
 
 // average world units between decals; each actual gap rolls 0.5x-1.5x of
@@ -34,6 +34,10 @@ export interface DecalSpec {
   // in world units, lane across it (same convention as the sign boxes).
   // Omitted = drive-through (bushes)
   collide?: { z: number; lane: number }
+  // smashable decals (big bushes): driving through the box destroys the
+  // decal in a burst of `color` pixels instead of a collision. Same
+  // half-extent convention as collide
+  smash?: { z: number; lane: number; color: number }
   // per-decal scaling overrides (see RoadObjectOptions): how the size
   // falls off with distance (<1 keeps far ones legible, 1 = true
   // perspective; default 0.8), and the floor/cap on the rendered scale
@@ -64,6 +68,9 @@ export interface DecalVariant {
   // to the road than the bush it replaces)
   weight?: number
   dist?: [number, number]
+  // overrides the base decal's smash burst colour for this theme (sand
+  // for the desert bush, powder for the snow drift)
+  smashColor?: number
 }
 
 export const DECALS: DecalSpec[] = [
@@ -90,6 +97,8 @@ export const DECALS: DecalSpec[] = [
     weight: 4,
     worldWidth: 32,
     dist: [2, 2.5],
+    // driving through the big bush smashes it into a leafy burst
+    smash: { z: 10, lane: 0.4, color: 0x4a8f3c },
     sizeFrames: [
       { frame: 0, width: 40, yOffset: 3 },
       { frame: 1, width: 29, yOffset: 6 },
@@ -101,13 +110,14 @@ export const DECALS: DecalSpec[] = [
     ],
     variants: {
       // recolour of the base sheet
-      desert: { texture: 'desert-bush2' },
+      desert: { texture: 'desert-bush2', smashColor: 0xd8b56a },
       // its own smaller drift shape (18x23 frames)
       snow: {
         texture: 'snow-bush2',
         worldWidth: 14,
         scaleExponent: 0.35,
         weight: 0.25,
+        smashColor: 0xeef4ff,
         sizeFrames: [
           { frame: 0, width: 18 },
           { frame: 1, width: 14, yOffset: 2 },
@@ -237,7 +247,8 @@ export const DECALS: DecalSpec[] = [
 // cosmetic — nothing here collides
 export class Scenery {
   private scene: Phaser.Scene
-  private decals: { obj: RoadObject; spec: DecalSpec }[] = []
+  private decals: { obj: RoadObject; spec: DecalSpec; smashColor?: number }[] =
+    []
   private nextZ = 0
 
   constructor(scene: Phaser.Scene) {
@@ -275,6 +286,9 @@ export class Scenery {
       const dist = min + Math.pow(Math.random(), DIST_BIAS) * (max - min)
       this.decals.push({
         spec,
+        // burst colour resolved now, so a later theme change doesn't
+        // recolour bushes already planted in the old theme's art
+        smashColor: variant?.smashColor ?? spec.smash?.color,
         obj: new RoadObject(this.scene, texture, this.nextZ, side * dist, {
           worldWidth: variant?.worldWidth ?? spec.worldWidth,
           minScale: variant?.minScale ?? spec.minScale ?? 0,
@@ -326,5 +340,56 @@ export class Scenery {
           spec.collide.lane * laneScale(),
         )
     }
+  }
+
+  // soft scenery: any smashable decal overlapping the player's position
+  // vanishes in a burst of its configured colour — no damage, no bounce.
+  // Call once per live frame with the player's z and lane
+  smashAt(road: Road, playerZ: number, playerLane: number) {
+    this.decals = this.decals.filter((decal) => {
+      const smash = decal.spec.smash
+      if (!smash) return true
+      if (
+        Math.abs(decal.obj.z - playerZ) >= smash.z ||
+        Math.abs(playerLane - decal.obj.laneOffset) >=
+          smash.lane * laneScale()
+      ) {
+        return true
+      }
+      const p = road.project(decal.obj.z, decal.obj.laneOffset)
+      this.burst(p.screenX, p.screenY, decal.smashColor ?? smash.color, road)
+      decal.obj.destroy()
+      return false
+    })
+  }
+
+  // a puff of 1px squares thrown up and out from the smash point, arcing
+  // down under gravity and gone in half a second
+  private burst(x: number, y: number, color: number, road: Road) {
+    const tint = multiplyColor(color, road.worldTint)
+    const parts = Array.from({ length: 10 }, () => ({
+      rect: this.scene.add
+        .rectangle(x, y - 1 - Math.random() * 3, 1, 1, tint)
+        .setDepth(3),
+      vx: (Math.random() - 0.5) * 70,
+      vy: -15 - Math.random() * 55,
+    }))
+    let last = 0
+    this.scene.tweens.addCounter({
+      from: 0,
+      to: 0.55,
+      duration: 550,
+      onUpdate: (tween) => {
+        const t = tween.getValue() ?? 0
+        const dt = t - last
+        last = t
+        for (const p of parts) {
+          p.vy += 260 * dt
+          p.rect.x += p.vx * dt
+          p.rect.y += p.vy * dt
+        }
+      },
+      onComplete: () => parts.forEach((p) => p.rect.destroy()),
+    })
   }
 }

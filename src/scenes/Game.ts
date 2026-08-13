@@ -17,6 +17,9 @@ import {
   COAST_DECEL,
   COIN_COLLIDE_LANE,
   COIN_COLLIDE_Z,
+  COIN_GAP,
+  COIN_INTERVAL,
+  COIN_ROW_COUNT,
   COLLIDE_CLEARANCE,
   COLLISION_DAMAGE,
   DAMAGE_COOLDOWN,
@@ -70,12 +73,12 @@ import {
   STEER_RETURN,
   STEER_SPEED,
   TOP_SPEED_MPH,
-  TRAFFIC_COUNT,
   TRAFFIC_MAX_SPEED,
   TRAFFIC_MIN_SPEED,
   TURN_SIGN_GAP,
   TURN_SIGN_LEAD,
   TURN_SIGN_REPEATS,
+  TURN_SIGN_SHOULDER,
 } from '../constants'
 import { Car } from '../entities/Car'
 import { Checkpoint } from '../entities/Checkpoint'
@@ -1208,8 +1211,12 @@ export class Game extends Scene {
   // chevron points and which shoulder it sits on. Signs that fall behind
   // the camera are destroyed.
   private updateTurnSigns() {
+    // sit the signs a fixed physical distance past the road edge (which
+    // is at laneOffset 1.0 = roadWidth world units), so the shoulder
+    // clearance holds no matter the level's road width
+    const edgeOffset = 1 + TURN_SIGN_SHOULDER / world.roadWidth
     for (const turn of this.road.drainTurnWarnings()) {
-      const laneOffset = turn.direction > 0 ? -1.15 : 1.15
+      const laneOffset = turn.direction > 0 ? -edgeOffset : edgeOffset
       for (let i = 0; i < TURN_SIGN_REPEATS; i++) {
         this.turnSigns.push(
           new RoadObject(

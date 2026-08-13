@@ -149,6 +149,11 @@ export const DRIFT_MAX_TIME = 2.4
 export const TURN_SIGN_REPEATS = 8
 export const TURN_SIGN_GAP = 150
 export const TURN_SIGN_LEAD = 600
+// how far past the road edge (world units) the signs sit on the
+// shoulder. Applied as a physical offset so the clearance holds as the
+// road narrows between levels, rather than a fixed lane fraction that
+// crowds the tarmac on the narrow desert/snow roads
+export const TURN_SIGN_SHOULDER = 30
 
 // floating coins: a row of COIN_ROW_COUNT spawns over a random lane
 // every COIN_INTERVAL world units, coins COIN_GAP apart; driving through

@@ -15,6 +15,10 @@ const FALL_FRICTION = 500
 // 1 = true perspective, lower keeps it bigger for longer as it recedes
 const FALL_SCALE_EXPONENT = 0.6
 
+// how quickly a car eases toward its target lane (fraction of the
+// remaining offset covered per second) when swerving to pass the player
+const LANE_CHANGE_RATE = 2.5
+
 // one traffic vehicle type: its sheet, physical size, pre-drawn distance
 // frames, and whether the sheet has lean art (frames 1-5 at the nearest
 // size). Add a vehicle by loading its sheet in Boot and appending an
@@ -168,6 +172,12 @@ export class NpcCar {
   speed = 0
   // fraction of the player's speed this car keeps up with
   rubberBand = 0.75
+  // the lane centre this car is easing toward (it normally equals
+  // laneOffset; the scene retargets it to swerve around the player)
+  targetLane = 0
+  // seconds until this car's next spontaneous lane change (the scene
+  // counts it down and re-rolls it)
+  laneChangeIn = 0
   // knocked over: the wreck coasts on momentum, no driving, no hitbox
   fallen = false
 
@@ -275,6 +285,9 @@ export class NpcCar {
     this.speed += (target - this.speed) * Math.min(1, 2 * dt)
     if (this.speed > capSpeed) this.speed = capSpeed
     this.z += this.speed * dt
+    // ease across to the target lane (a no-op while it matches)
+    this.laneOffset +=
+      (this.targetLane - this.laneOffset) * Math.min(1, LANE_CHANGE_RATE * dt)
     this.obj.z = this.z
     this.obj.laneOffset = this.laneOffset
 

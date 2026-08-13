@@ -8,6 +8,8 @@ export const world = {
   roadWidth: LEVELS[0].roadWidth,
   // relative spawn weights per vehicle texture (see VEHICLES)
   trafficMix: LEVELS[0].trafficMix,
+  // how many NPC vehicles share the road at once
+  trafficCount: LEVELS[0].trafficCount,
   // fraction of MAX_SPEED the player's engine can currently reach
   maxSpeedFactor: LEVELS[0].maxSpeedFactor,
   // which decal variant set newly spawned scenery uses (see DECALS

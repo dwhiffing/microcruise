@@ -8,6 +8,7 @@ import {
   BURNOUT_SHAKE,
   CAMERA_DEPTH,
   CAMERA_HEIGHT,
+  CAR_COLLIDE_LANE,
   CAR_COLLIDE_Z,
   CENTRIFUGAL,
   CHECKPOINT_BONUS,
@@ -114,6 +115,13 @@ const COIN_COMBO_RATE_MAX = 2
 // matches its speed once within this many world units, instead of
 // driving through it (also the spacing respawns keep clear)
 const FOLLOW_GAP = 60
+// an overtaker starts its dodge around the player once it's within this
+// many world units behind them
+const OVERTAKE_GAP = 250
+// every so often a car drifts to another lane on its own, like real
+// traffic — each waits a random 4-9s between changes
+const LANE_WANDER_MIN_S = 4
+const LANE_WANDER_MAX_S = 9
 
 export class Game extends Scene {
   public ui!: UI
@@ -206,6 +214,7 @@ export class Game extends Scene {
       })
     }
     world.trafficMix = spec.trafficMix
+    world.trafficCount = spec.trafficCount
     world.maxSpeedFactor = spec.maxSpeedFactor
     world.sceneryTheme = spec.scenery ?? ''
     this.checkpointInterval = spec.checkpointInterval
@@ -383,24 +392,37 @@ export class Game extends Scene {
 
     // the menu opens over a road already rolling by
     this.menuCruising = true
-  }
 
-  // drop a traffic car onto a random lane centre, somewhere ahead of the
-  // player, with a fresh cruising speed and rubber-band personality; the
-  // spot is re-rolled if it lands on top of another NPC's lane slot
-  private respawnCar(car: NpcCar) {
-    for (let tries = 0; tries < 6; tries++) {
-      car.z = this.distance + 800 + Math.random() * 1500
-      car.laneOffset =
-        ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
-      if (!this.laneBlocked(car, FOLLOW_GAP * 2)) break
-    }
-    // it respawns beyond the horizon, so it can come back as anything
-    car.randomizeVehicle()
+  // drop a traffic car onto a random lane centre with a fresh cruising
+  // speed and rubber-band personality; the spot is re-rolled if it lands
+  // on top of another NPC's lane slot. Usually it lands ahead in the
+  // minAhead..minAhead+spread band, but mid-run a car that rolled a
+  // faster pace than the player can slot in just behind the camera
+  // instead, so it comes up and overtakes
+  private respawnCar(car: NpcCar, minAhead = 800, spread = 1500) {
     car.baseSpeed =
       TRAFFIC_MIN_SPEED +
       Math.random() * (TRAFFIC_MAX_SPEED - TRAFFIC_MIN_SPEED)
     car.rubberBand = 0.6 + Math.random() * 0.3
+    const fromBehind =
+      !this.menuCruising &&
+      !this.paused &&
+      car.baseSpeed > this.speed &&
+      Math.random() < 0.4
+    for (let tries = 0; tries < 6; tries++) {
+      car.z = fromBehind
+        ? this.distance - 20 - Math.random() * 60
+        : this.distance + minAhead + Math.random() * spread
+      car.laneOffset =
+        ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+      if (!this.laneBlocked(car, FOLLOW_GAP * 2)) break
+    }
+    car.targetLane = car.laneOffset
+    car.laneChangeIn =
+      LANE_WANDER_MIN_S +
+      Math.random() * (LANE_WANDER_MAX_S - LANE_WANDER_MIN_S)
+    // it respawns out of view, so it can come back as anything
+    car.randomizeVehicle()
   }
 
   // is another NPC within `gap` (either direction) of this one's lane slot?
@@ -675,6 +697,12 @@ export class Game extends Scene {
     this.isGameOver = false
     // TODO: re-enable music
     // this.music.play()
+    // traffic re-scatters just behind the camera (inside the cull line
+    // at -100), so the pack streams up past the player as the run gets
+    // rolling instead of waiting somewhere over the horizon
+    for (const car of this.traffic) {
+      this.respawnCar(car, -90, 70)
+    }
     // the whole HUD fades in with fresh values (the car entrance is
     // already underway — it started when the transmission was confirmed)
     this.ui.setSpeed(0)
@@ -765,12 +793,7 @@ export class Game extends Scene {
     // leftover coins scroll by too — the camera isn't the car, so
     // nothing gets collected
     this.scrollCoins(false)
-    for (const car of this.traffic) {
-      if (car.z < this.distance - 100 || car.z > this.distance + 4000) {
-        this.respawnCar(car)
-      }
-      car.update(this.road, dt, MENU_DRIVE_SPEED, this.followCap(car))
-    }
+    this.resizeTraffic(dt, MENU_DRIVE_SPEED)
     // hand off only once the transmission is picked — the camera can
     // arrive early and sit parked while the gear menu is still up
     if (arrived && !this.gearMenuOpen) {
@@ -1221,12 +1244,102 @@ export class Game extends Scene {
   // traffic drives itself; recycle a car onto the road ahead once it falls
   // behind the camera or escapes far beyond the draw distance
   private updateTraffic(dt: number) {
-    for (const car of this.traffic) {
+    this.resizeTraffic(dt, this.speed, true)
+  }
+
+  // the shared fleet loop (run and menu cruise): recycle out-of-view
+  // cars ahead, and ease the fleet toward the level's trafficCount —
+  // new cars drop in beyond the horizon at once, surplus ones retire
+  // when they leave the view instead of respawning. live = the player
+  // car is on the road, so overtakers must dodge around it
+  private resizeTraffic(dt: number, pace: number, live = false) {
+    while (this.traffic.length < world.trafficCount) {
+      const car = new NpcCar(this, 0, 0, 0)
+      this.respawnCar(car)
+      this.traffic.push(car)
+    }
+    let surplus = this.traffic.length - world.trafficCount
+    this.traffic = this.traffic.filter((car) => {
       if (car.z < this.distance - 100 || car.z > this.distance + 4000) {
+        if (surplus > 0) {
+          surplus--
+          car.destroy()
+          return false
+        }
         this.respawnCar(car)
       }
-      car.update(this.road, dt, this.speed, this.followCap(car))
+      car.laneChangeIn -= dt
+      if (car.laneChangeIn <= 0) {
+        car.laneChangeIn =
+          LANE_WANDER_MIN_S +
+          Math.random() * (LANE_WANDER_MAX_S - LANE_WANDER_MIN_S)
+        this.wanderLane(car, live)
+      }
+      let cap = this.followCap(car)
+      if (live) cap = Math.min(cap, this.dodgePlayer(car))
+      car.update(this.road, dt, pace, cap)
+      return true
+    })
+  }
+
+  // a spontaneous lane change to a random other lane — skipped when the
+  // new lane would drop the car onto another NPC's slot, or into the
+  // player's line while anywhere near them
+  private wanderLane(car: NpcCar, live: boolean) {
+    if (car.fallen) return
+    const options: number[] = []
+    for (let i = 0; i < LANES; i++) {
+      const lane = ((i + 0.5) / LANES) * 2 - 1
+      if (Math.abs(lane - car.targetLane) < 0.1) continue
+      const blocked = this.traffic.some(
+        (other) =>
+          other !== car &&
+          Math.abs(other.laneOffset - lane) < 0.1 &&
+          Math.abs(other.z - car.z) < FOLLOW_GAP * 2,
+      )
+      if (blocked) continue
+      if (
+        live &&
+        Math.abs(lane - this.playerX) <
+          CAR_COLLIDE_LANE * laneScale() + car.collideLane + 0.05 &&
+        Math.abs(this.distance + PLAYER_Z - car.z) < OVERTAKE_GAP
+      )
+        continue
+      options.push(lane)
     }
+    if (options.length === 0) return
+    car.targetLane = options[Math.floor(Math.random() * options.length)]
+  }
+
+  // a faster car closing in on the player from behind swerves toward
+  // the lane centre farthest from them; as a hard guarantee, any car in
+  // the player's line and close behind is capped to the player's pace —
+  // regardless of relative speed, or a matched-pace car would un-cap
+  // and creep forward frame by frame into the player's rear. Returns
+  // the speed cap
+  private dodgePlayer(car: NpcCar): number {
+    const gap = this.distance + PLAYER_Z - car.z
+    if (gap <= 0 || gap > OVERTAKE_GAP) return Infinity
+    const clearance = CAR_COLLIDE_LANE * laneScale() + car.collideLane + 0.05
+    if (
+      car.speed > this.speed &&
+      Math.abs(car.targetLane - this.playerX) < clearance
+    ) {
+      let best = car.targetLane
+      let bestDist = -1
+      for (let i = 0; i < LANES; i++) {
+        const lane = ((i + 0.5) / LANES) * 2 - 1
+        const d = Math.abs(lane - this.playerX)
+        if (d > bestDist) {
+          bestDist = d
+          best = lane
+        }
+      }
+      car.targetLane = best
+    }
+    if (gap < FOLLOW_GAP && Math.abs(car.laneOffset - this.playerX) < clearance)
+      return this.speed
+    return Infinity
   }
 
   // collisions: cars and roadside signs both bounce the player
@@ -1234,6 +1347,10 @@ export class Game extends Scene {
     for (const car of this.traffic) {
       // a downed bike lies flat — nothing left to hit
       if (car.fallen) continue
+      // traffic behind the player can never hit them: collisions only
+      // count against cars ahead (the player driving into their rear
+      // or side) — anything coming up from behind passes untouchably
+      if (car.z < this.distance + PLAYER_Z) continue
       const side = this.collide(
         car.z,
         car.laneOffset,

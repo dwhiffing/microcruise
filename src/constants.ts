@@ -159,10 +159,11 @@ export const MAX_TIME = 99
 // health restored when crossing a checkpoint (100 = full repair)
 export const CHECKPOINT_REPAIR = 100
 
-// other cars cruising the road
-export const TRAFFIC_COUNT = 3
-export const TRAFFIC_MIN_SPEED = 250
-export const TRAFFIC_MAX_SPEED = 450
+// other cars cruising the road — how many is level-driven (see LEVELS).
+// The wide speed spread means slow traffic to weave through and fast
+// cars that come up from behind and overtake
+export const TRAFFIC_MIN_SPEED = 150
+export const TRAFFIC_MAX_SPEED = 550
 
 // health: collisions drain it in proportion to impact speed — a hit at
 // MAX_SPEED relative speed costs COLLISION_DAMAGE health (side swipes
@@ -216,6 +217,10 @@ export interface LevelSpec {
   // relative spawn weights per vehicle texture (see VEHICLES); types not
   // listed never spawn on that level
   trafficMix: Record<string, number>
+  // how many NPC vehicles share the road at once — new ones drop in
+  // beyond the horizon on a level change, surplus ones retire once they
+  // leave the view
+  trafficCount: number
   // fraction of MAX_SPEED the player's engine can reach
   maxSpeedFactor: number
   // ground palette overrides (keys of COLORS): the terrain beside the
@@ -235,23 +240,25 @@ export const LEVELS: LevelSpec[] = [
     // 1: grassland — wide and forgiving, light traffic, gentle bends
     name: 'grass',
     roadWidth: 60,
-    turnStrength: 0.7,
-    curveChance: 0.5,
-    straightLen: [40, 80],
-    checkpointInterval: 8000,
-    trafficMix: { motorcycle: 0.5, car2: 0.5 },
-    maxSpeedFactor: 0.7,
+    turnStrength: 1.3,
+    curveChance: 1,
+    straightLen: [30, 45],
+    checkpointInterval: 6000,
+    trafficMix: { motorcycle: 0.5, car2: 0.35, truck: 0.15 },
+    trafficCount: 8,
+    maxSpeedFactor: 1,
   },
   {
     // 2: desert — tighter road, sharper turns, trucks join the flow
     name: 'desert',
-    roadWidth: 45,
-    turnStrength: 1,
-    curveChance: 0.75,
-    straightLen: [25, 55],
-    checkpointInterval: 10000,
-    trafficMix: { motorcycle: 0.2, car2: 0.5, truck: 0.3 },
-    maxSpeedFactor: 0.85,
+    roadWidth: 50,
+    turnStrength: 1.25,
+    curveChance: 1,
+    straightLen: [35, 45],
+    checkpointInterval: 8500,
+    trafficMix: { motorcycle: 0.3, car2: 0.3, truck: 0.3 },
+    trafficCount: 10,
+    maxSpeedFactor: 1,
     colors: { grass: 0xd7b98a, grassAlt: 0xc2a069 }, // beige sands
     skyFg: 'desert-sky-fg',
     scenery: 'desert',
@@ -259,12 +266,13 @@ export const LEVELS: LevelSpec[] = [
   {
     // 3: snow — narrow, twisty, heavy traffic, full speed unlocked
     name: 'snow',
-    roadWidth: 35,
-    turnStrength: 1.35,
+    roadWidth: 40,
+    turnStrength: 1.5,
     curveChance: 1,
-    straightLen: [15, 35],
-    checkpointInterval: 12000,
-    trafficMix: { motorcycle: 0.1, car2: 0.3, truck: 0.4, semi: 0.2 },
+    straightLen: [25, 35],
+    checkpointInterval: 10000,
+    trafficMix: { motorcycle: 0.1, car2: 0.3, truck: 0.3, semi: 0.3 },
+    trafficCount: 12,
     maxSpeedFactor: 1,
     colors: { grass: 0xffffff, grassAlt: 0xb8dcf2 }, // snow and ice
     skyFg: 'snow-sky-fg',

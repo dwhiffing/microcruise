@@ -107,7 +107,7 @@ export const COAST_DECEL = 30
 // normal coast deceleration (the taillights light while it does)
 export const OUT_OF_TIME_DECEL_FACTOR = 3
 export const OFFROAD_MAX_SPEED = 120
-export const OFFROAD_DECEL = 150
+export const OFFROAD_DECEL = 200
 export const OFFROAD_ACCEL_FACTOR = 0.75
 // max camera jitter (px) while off-road at speed
 export const OFFROAD_SHAKE = 0.2
@@ -230,7 +230,7 @@ export const BRAKE_LIGHT_SWAPS: [number, number][] = [
 // checkpoints, clamping at the last level. Each level reshapes the world
 // — everything already on the road is untouched; new generation picks
 // the values up (road width eases over instead of snapping)
-export const CHECKPOINTS_PER_LEVEL = 5
+export const CHECKPOINTS_PER_LEVEL = 3
 export interface LevelSpec {
   name: string
   // the road's half-width in world units (large = easy)

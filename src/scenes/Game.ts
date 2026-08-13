@@ -131,8 +131,8 @@ const LANE_WANDER_MAX_S = 9
 // top of them, spread out so cars trickle into view over the opening
 // seconds instead of all appearing at once. The far end stays inside the
 // +4000 cull window so the pack isn't relocated on the first frame
-const START_TRAFFIC_MIN_AHEAD = 200
-const START_TRAFFIC_SPREAD = 1400
+const START_TRAFFIC_MIN_AHEAD = 50
+const START_TRAFFIC_SPREAD = 1000
 
 export class Game extends Scene {
   public ui!: UI
@@ -1204,6 +1204,14 @@ export class Game extends Scene {
   // snaps to full lean and gains speed until the drift direction is
   // released
   private updateDrift(dt: number) {
+    // nitro overpowers the slide: engaging it snaps the car straight out
+    // of any drift, and no new drift can kick while the boost burns
+    if (this.nitroActive) {
+      this.driftDir = 0
+      this.driftReleaseTime = 0
+      this.driftCounterTime = 0
+      return
+    }
     if (this.driftDir !== 0) {
       // taps of countersteer are tolerated — holding the opposite
       // direction long enough ends the drift; so does going too long

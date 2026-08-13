@@ -162,7 +162,6 @@ export class Boot extends Scene {
     this.load.audio('fire2', 'fire2.mp3')
     this.load.audio('coin', 'coin.mp3')
     this.load.audio('music', 'music-emplified-grand-prix.mp3')
-    // mp3, not mp3: encoder padding puts a gap at mp3 loop points
     this.load.audio('engine', 'engine.mp3')
     this.load.audio('checkpoint', 'checkpoint.mp3')
     this.load.audio('drift', 'drift.mp3')
@@ -172,6 +171,7 @@ export class Boot extends Scene {
     this.load.audio('ignition', 'ignition.mp3')
     this.load.audio('nitro', 'nitro.mp3')
     this.load.audio('offroad', 'offroad.mp3')
+    this.load.audio('countdown', 'countdown.mp3')
   }
 
   create() {

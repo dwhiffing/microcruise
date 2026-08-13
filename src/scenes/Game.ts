@@ -170,7 +170,6 @@ export class Game extends Scene {
   private checkpointsCrossed = 0 // this run; every 5th advances the level
   private level = 0 // index into LEVELS
   private coins: Coin[] = []
-  private nextCoinZ = 0
   private traffic: NpcCar[] = []
   private speed = 0
   private nitroMs = 0 // remaining nitro budget (ms), refilled by coins
@@ -189,6 +188,7 @@ export class Game extends Scene {
   private distance = 0
   private timeLeft = RACE_TIME
   private outOfTime = false // clock at 0: controls cut, car coasting
+  private countdownPlayed = false // final-seconds jingle fired for this dip
   private health = MAX_HEALTH
   private damageCooldown = 0 // seconds of post-hit invulnerability left
   private impactSkidTime = 0 // seconds of post-hit tire scrub left
@@ -839,6 +839,9 @@ export class Game extends Scene {
       this.offroadSoundOn = false
       this.stopOffroadSound()
     }
+    // the final-seconds jingle shouldn't ring on into the menu
+    this.sound.stopByKey('countdown')
+    this.countdownPlayed = false
 
     // reset the world back to level 1 right away, so the road/scenery/
     // skyline are already easing back to grass through the game-over
@@ -990,6 +993,16 @@ export class Game extends Scene {
     if (this.outOfTime && this.speed <= 0) {
       this.gameOver()
       return
+    }
+    // the final-seconds jingle fires once as the clock crosses 3.5s; a
+    // checkpoint refill re-arms it (and cuts it off mid-ring, since its
+    // count no longer matches the clock)
+    if (this.timeLeft <= 5.1 && !this.countdownPlayed) {
+      this.countdownPlayed = true
+      this.sound.play('countdown', { volume: 1 })
+    } else if (this.timeLeft > 5.1 && this.countdownPlayed) {
+      this.countdownPlayed = false
+      this.sound.stopByKey('countdown')
     }
     this.ui.setTimer(Math.ceil(this.timeLeft))
 

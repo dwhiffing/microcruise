@@ -256,7 +256,7 @@ export class Game extends Scene {
 
   private get score() {
     return Phaser.Math.Clamp(
-      Math.floor((this.distance - this.runStartDistance) / 250),
+      Math.floor((this.distance - this.runStartDistance) / 100),
       0,
       MAX_SCORE,
     )

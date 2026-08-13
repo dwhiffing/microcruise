@@ -157,21 +157,21 @@ export class Boot extends Scene {
 
     this.load.setPath('assets/audio')
     this.load.audio('select', 'select.mp3')
-    this.load.audio('explode', 'explode.wav')
-    this.load.audio('fire', 'fire.wav')
-    this.load.audio('fire2', 'fire2.wav')
-    this.load.audio('coin', 'coin.wav')
+    this.load.audio('explode', 'explode.mp3')
+    this.load.audio('fire', 'fire.mp3')
+    this.load.audio('fire2', 'fire2.mp3')
+    this.load.audio('coin', 'coin.mp3')
     this.load.audio('music', 'music-emplified-grand-prix.mp3')
-    // wav, not mp3: encoder padding puts a gap at mp3 loop points
-    this.load.audio('engine', 'engine.wav')
-    this.load.audio('checkpoint', 'checkpoint.wav')
-    this.load.audio('drift', 'drift.wav')
-    this.load.audio('keys', 'keys.wav')
-    this.load.audio('light-crash', 'light-crash.wav')
-    this.load.audio('crash', 'crash.wav')
-    this.load.audio('ignition', 'ignition.wav')
+    // mp3, not mp3: encoder padding puts a gap at mp3 loop points
+    this.load.audio('engine', 'engine.mp3')
+    this.load.audio('checkpoint', 'checkpoint.mp3')
+    this.load.audio('drift', 'drift.mp3')
+    this.load.audio('keys', 'keys.mp3')
+    this.load.audio('light-crash', 'light-crash.mp3')
+    this.load.audio('crash', 'crash.mp3')
+    this.load.audio('ignition', 'ignition.mp3')
     this.load.audio('nitro', 'nitro.mp3')
-    this.load.audio('offroad', 'offroad.wav')
+    this.load.audio('offroad', 'offroad.mp3')
   }
 
   create() {

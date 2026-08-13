@@ -131,8 +131,8 @@ const LANE_WANDER_MAX_S = 9
 // top of them, spread out so cars trickle into view over the opening
 // seconds instead of all appearing at once. The far end stays inside the
 // +4000 cull window so the pack isn't relocated on the first frame
-const START_TRAFFIC_MIN_AHEAD = 500
-const START_TRAFFIC_SPREAD = 3400
+const START_TRAFFIC_MIN_AHEAD = 200
+const START_TRAFFIC_SPREAD = 1400
 
 export class Game extends Scene {
   public ui!: UI

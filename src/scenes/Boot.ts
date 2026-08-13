@@ -193,6 +193,13 @@ export class Boot extends Scene {
     const d = img.data
     for (let i = 0; i < d.length; i += 4) {
       if (d[i + 3] === 0) continue
+      // the heavy-damage row (third row of 16px frames) draws the LEFT
+      // taillight smashed, and its shards reuse the taillight palette —
+      // only light the intact right half of each 32px frame there, so a
+      // broken light stays dark under braking
+      const x = (i / 4) % canvas.width
+      const y = Math.floor(i / 4 / canvas.width)
+      if (y >= 32 && x % 32 < 16) continue
       const rgb = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2]
       for (const [from, to] of BRAKE_LIGHT_SWAPS) {
         if (rgb === from) {

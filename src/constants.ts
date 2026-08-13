@@ -51,7 +51,7 @@ export const SKY_PHASES = [
   { tint: 0x4a5a8e, bg: 0x0b0e2a, drop: 24, world: 0x55628f }, // night
 ]
 
-export const MAX_SPEED = 600
+export const MAX_SPEED = 650
 // gears: each gear's top speed as a fraction of MAX_SPEED, and its
 // acceleration multiplier on ACCEL — low gears pull hard but run out fast
 export const GEAR_MAX = [0.18, 0.34, 0.5, 0.66, 0.83, 1]
@@ -73,12 +73,33 @@ export const ENGINE_RATE_MAX = 0.7
 export const AUTO_SHIFT = true
 // what MAX_SPEED reads as on the speedometer: the gauge always spans
 // 0-215 mph no matter the internal top speed
-export const TOP_SPEED_MPH = 200
+export const TOP_SPEED_MPH = 215
 // speed at which steering/centrifugal reach nominal strength; forces keep
 // growing with real speed past it, so faster = harder to hold a curve
 export const REFERENCE_SPEED = 300
-export const ACCEL = 40
+export const ACCEL = 50
 export const BRAKE = 300
+// nitro: held space bar multiplies the throttle's pull by this factor.
+// It doesn't raise any gear's ceiling — the car just reaches its normal
+// top speed faster
+export const NITRO_ACCEL_FACTOR = 5
+export const NITRO_LIFT = 4
+export const NITRO_LIFT_RATE = 8
+export const NITRO_SHAKE = 0.15
+export const NITRO_VOLUME = 0.4
+export const NITRO_PER_COIN_MS = 350
+export const NITRO_MAX_MS = NITRO_PER_COIN_MS * 11
+export const SPEED_LINE_COUNT = 20
+export const SPEED_LINE_RADIAL = 90
+export const SPEED_LINE_MIN_LEN = 12
+export const SPEED_LINE_MAX_LEN = 18
+export const SPEED_LINE_HOLE = 24
+export const SPEED_LINE_ALPHA = 0.2
+export const SPEED_LINE_FADE = 0.25
+export const SPEED_LINE_Y_OFFSET = 10
+export const VIGNETTE_START = 18
+export const VIGNETTE_ALPHA = 0.8
+export const VIGNETTE_COLOR = 0x000000
 export const COAST_DECEL = 30
 // with the clock at 0 the car drags itself down at this multiple of the
 // normal coast deceleration (the taillights light while it does)
@@ -147,6 +168,7 @@ export const COIN_COLLIDE_LANE = 0.25
 // debug: skip the 3-2-1 countdown and start driving as soon as the car
 // pulls in
 export const SKIP_COUNTDOWN = true
+export const DEBUG_KEYS = SKIP_COUNTDOWN
 
 // seconds on the countdown clock; reaching zero ends the run
 export const RACE_TIME = 60

@@ -170,6 +170,7 @@ export class Boot extends Scene {
     this.load.audio('light-crash', 'light-crash.wav')
     this.load.audio('crash', 'crash.wav')
     this.load.audio('ignition', 'ignition.wav')
+    this.load.audio('nitro', 'nitro.mp3')
   }
 
   create() {

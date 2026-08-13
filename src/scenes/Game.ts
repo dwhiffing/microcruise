@@ -23,6 +23,7 @@ import {
   COIN_ROW_COUNT,
   COLLISION_DAMAGE,
   DAMAGE_COOLDOWN,
+  DEBUG_KEYS,
   DRAW_SEGMENTS,
   DRIFT_ACCEL_FACTOR,
   DRIFT_COUNTERSTEER_TIME,
@@ -46,6 +47,13 @@ import {
   MAX_SCORE,
   MAX_SPEED,
   MAX_TIME,
+  NITRO_ACCEL_FACTOR,
+  NITRO_LIFT,
+  NITRO_LIFT_RATE,
+  NITRO_MAX_MS,
+  NITRO_PER_COIN_MS,
+  NITRO_SHAKE,
+  NITRO_VOLUME,
   OFFROAD_ACCEL_FACTOR,
   OFFROAD_DECEL,
   OFFROAD_MAX_SPEED,
@@ -80,6 +88,7 @@ import { Road } from '../entities/Road'
 import { RoadObject } from '../entities/RoadObject'
 import { Scenery } from '../entities/Scenery'
 import { SkidMarks } from '../entities/SkidMarks'
+import { SpeedLines } from '../entities/SpeedLines'
 import { UI } from '../entities/UI'
 import { laneScale, world } from '../world'
 
@@ -105,11 +114,8 @@ const ENTER_BRAKE_MS = 80
 // the press that opened it (or a quick double-tap) can't instantly
 // toggle or confirm
 const GEAR_MENU_INPUT_DELAY_MS = 400
-// coins grabbed in quick succession chime at rising pitch: each pickup
-// within the window steps the rate up from 1, clamped at the max
-const COIN_COMBO_WINDOW_MS = 1000
-const COIN_COMBO_RATE_STEP = 0.1
-const COIN_COMBO_RATE_MAX = 2
+const COIN_RATE_EMPTY = 1
+const COIN_RATE_FULL = 2
 
 // traffic car-following: an NPC closing on a slower one in its lane
 // matches its speed once within this many world units, instead of
@@ -128,6 +134,9 @@ export class Game extends Scene {
   public music: Phaser.Sound.BaseSound
   // the engine loop: pitch rides the same RPM value the tach shows
   private engineSound!: Phaser.Sound.WebAudioSound
+  // the nitro whoosh: plays on engage, fades out on release
+  private nitroSound!: Phaser.Sound.WebAudioSound
+  private nitroSoundOn = false
   // the drift screech: attack marker once, sustain marker looping
   private driftSound!: Phaser.Sound.WebAudioSound
   private driftSoundOn = false
@@ -145,6 +154,7 @@ export class Game extends Scene {
   private car!: Car
   private skidMarks!: SkidMarks
   private scenery!: Scenery
+  private speedLines!: SpeedLines
   private turnSigns: RoadObject[] = []
   private checkpoints: Checkpoint[] = []
   private nextCheckpointZ = LEVELS[0].checkpointInterval
@@ -153,11 +163,11 @@ export class Game extends Scene {
   private level = 0 // index into LEVELS
   private coins: Coin[] = []
   private nextCoinZ = 0
-  private coinScore = 0 // points banked from coins this run
-  private coinCombo = 0 // consecutive quick pickups, for the rising chime
-  private lastCoinAt = 0 // when the last coin was grabbed (ms timestamp)
   private traffic: NpcCar[] = []
   private speed = 0
+  private nitroMs = 0 // remaining nitro budget (ms), refilled by coins
+  private nitroActive = false // boosting this frame (held, moving, fuelled)
+  private carLift = 0 // eased px the car rides up the screen under nitro
   private playerX = 0 // -1..1 = on road, beyond that = grass
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
   private steerInput = 0 // raw held direction this frame: -1, 0, or 1
@@ -225,8 +235,7 @@ export class Game extends Scene {
 
   private get score() {
     return Phaser.Math.Clamp(
-      Math.floor((this.distance - this.runStartDistance) / 1000) +
-        this.coinScore,
+      Math.floor((this.distance - this.runStartDistance) / 1000),
       0,
       MAX_SCORE,
     )
@@ -239,6 +248,10 @@ export class Game extends Scene {
     this.engineSound = this.sound.add('engine', {
       loop: true,
       volume: ENGINE_VOLUME,
+    }) as Phaser.Sound.WebAudioSound
+    this.nitroSound = this.sound.add('nitro', {
+      loop: false,
+      volume: NITRO_VOLUME,
     }) as Phaser.Sound.WebAudioSound
     // the screech is split into two markers: the bite at the start
     // plays once, then the steady middle loops while the drift holds
@@ -279,83 +292,79 @@ export class Game extends Scene {
     this.car = new Car(this)
     this.road.onWorldTint = (tint) => this.car.setDayTint(tint)
     this.car.park()
-    this.traffic = Array.from({ length: TRAFFIC_COUNT }, () => {
+    this.traffic = Array.from({ length: world.trafficCount }, () => {
       const car = new NpcCar(this, 0, 0, 0)
       this.respawnCar(car)
       return car
     })
     this.ui = new UI(this)
+    this.speedLines = new SpeedLines(this)
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.keyZ = this.input.keyboard!.addKey('Z')
     this.keyX = this.input.keyboard!.addKey('X')
     this.keyC = this.input.keyboard!.addKey('C')
 
-    this.highScore = Number(localStorage.getItem('highScore') ?? '0')
+    this.highScore = Number(
+      localStorage.getItem('microcruise-highScore') ?? '0',
+    )
     if (this.highScore > 0) {
       this.ui.scoreText.setText(`HIGH SCORE\n${this.highScore}`)
     }
-    ;['Q', 'W', 'E', 'R', 'T'].forEach((key, i) => {
-      if (i === 0)
+    if (DEBUG_KEYS) {
+      // debug: time scale presets
+      ;['Q', 'W', 'E', 'R', 'T'].forEach((key, i) => {
+        const scales = [0.1, 0.5, 1, 2, 8]
         this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 0.1
+          this.timeScale = scales[i]
         })
-      if (i === 1)
-        this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 0.5
-        })
-      if (i === 2)
-        this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 1
-        })
-      if (i === 3)
-        this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 2
-        })
-      if (i === 4)
-        this.input.keyboard!.on(`keydown-${key}`, () => {
-          this.timeScale = 8
-        })
-    })
-
-    // debug: take a hit on demand
-    this.input.keyboard!.on('keydown-V', () => {
-      this.takeDamage(this.speed)
-    })
-
-    // debug: set the clock to 15 seconds
-    this.input.keyboard!.on('keydown-B', () => {
-      this.timeLeft = 15
-    })
-
-    // debug: jump straight to the next level
-    this.input.keyboard!.on('keydown-N', () => {
-      const next = Math.min(LEVELS.length - 1, this.level + 1)
-      this.checkpointsCrossed = next * CHECKPOINTS_PER_LEVEL
-      if (next !== this.level) this.setLevel(next)
-    })
-
-    // debug: 1-4 drops a specific vehicle type onto the road ahead by
-    // repurposing whichever traffic car is farthest from the player
-    ;['ONE', 'TWO', 'THREE', 'FOUR'].forEach((key, i) => {
-      this.input.keyboard!.on(`keydown-${key}`, () => {
-        const spec = VEHICLES[i]
-        if (!spec) return
-        let car = this.traffic[0]
-        for (const other of this.traffic) {
-          if (
-            Math.abs(other.z - this.distance) > Math.abs(car.z - this.distance)
-          ) {
-            car = other
-          }
-        }
-        car.setVehicle(spec)
-        car.z = this.distance + 500
-        car.laneOffset =
-          ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
-        car.baseSpeed = TRAFFIC_MIN_SPEED
-        car.speed = TRAFFIC_MIN_SPEED
       })
-    })
+
+      // debug: take a hit on demand
+      this.input.keyboard!.on('keydown-V', () => {
+        this.takeDamage(this.speed)
+      })
+
+      // debug: set the clock to 15 seconds
+      this.input.keyboard!.on('keydown-B', () => {
+        this.timeLeft = 15
+      })
+
+      // debug: jump straight to the next level
+      this.input.keyboard!.on('keydown-Y', () => {
+        const next = Math.min(LEVELS.length - 1, this.level + 1)
+        this.checkpointsCrossed = next * CHECKPOINTS_PER_LEVEL
+        if (next !== this.level) this.setLevel(next)
+      })
+
+      // debug: collect a coin on demand (score + nitro top-up + chime)
+      this.input.keyboard!.on('keydown-N', () => {
+        if (!this.paused && !this.menuCruising) this.collectCoin()
+      })
+
+      // debug: 1-4 drops a specific vehicle type onto the road ahead by
+      // repurposing whichever traffic car is farthest from the player
+      ;['ONE', 'TWO', 'THREE', 'FOUR'].forEach((key, i) => {
+        this.input.keyboard!.on(`keydown-${key}`, () => {
+          const spec = VEHICLES[i]
+          if (!spec) return
+          let car = this.traffic[0]
+          for (const other of this.traffic) {
+            if (
+              Math.abs(other.z - this.distance) >
+              Math.abs(car.z - this.distance)
+            ) {
+              car = other
+            }
+          }
+          car.setVehicle(spec)
+          car.z = this.distance + 500
+          car.laneOffset =
+            ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+          car.baseSpeed = TRAFFIC_MIN_SPEED
+          car.speed = TRAFFIC_MIN_SPEED
+        })
+      })
+    }
 
     this.input.keyboard!.on('keydown-M', () => {
       const newMute = !this.game.sound.mute
@@ -392,6 +401,23 @@ export class Game extends Scene {
 
     // the menu opens over a road already rolling by
     this.menuCruising = true
+
+    // debug: boot straight into a run — no title screen or transmission
+    // picker, automatic selected, the camera already pulling in and the
+    // car driving up into view
+    if (SKIP_COUNTDOWN) {
+      this.autoShift = true
+      this.startPending = true
+      this.menuTarget = this.road.straightenAhead()
+      for (const car of this.traffic) {
+        this.respawnCar(car)
+        car.z += this.menuTarget - this.distance
+      }
+      this.distance += Math.max(0, this.menuTarget - this.distance) * 0.85
+      this.engineSound.play({ volume: ENGINE_VOLUME })
+      this.launchRun()
+    }
+  }
 
   // drop a traffic car onto a random lane centre with a fresh cruising
   // speed and rubber-band personality; the spot is re-rolled if it lands
@@ -647,7 +673,7 @@ export class Game extends Scene {
     // gated on menuCruising, so an early unpause just waits)
     this.car.enter(
       () => {
-        if (SKIP_COUNTDOWN) {
+        if (true || SKIP_COUNTDOWN) {
           this.paused = false
           return
         }
@@ -671,6 +697,9 @@ export class Game extends Scene {
   // play the intro (car drives in, countdown), continuing from this spot
   private beginRun() {
     this.speed = 0
+    this.carLift = 0
+    this.nitroMs = 0
+    this.nitroActive = false
     this.playerX = 0
     this.steerValue = 0
     this.driftDir = 0
@@ -689,7 +718,6 @@ export class Game extends Scene {
     this.nextCheckpointZ = this.distance + this.checkpointInterval
     this.checkpoints.forEach((gantry) => gantry.destroy())
     this.checkpoints = []
-    this.coinScore = 0
     this.nextCoinZ = this.distance + COIN_INTERVAL
     this.coins.forEach((coin) => coin.destroy())
     this.coins = []
@@ -717,6 +745,10 @@ export class Game extends Scene {
     this.music.pause()
     this.engineSound.stop()
     if (this.driftSoundOn) this.stopDriftSound()
+    if (this.nitroSoundOn) {
+      this.nitroSoundOn = false
+      this.stopNitroSound()
+    }
 
     // reset the world back to level 1 right away, so the road/scenery/
     // skyline are already easing back to grass through the game-over
@@ -728,7 +760,7 @@ export class Game extends Scene {
     const score = this.score
     if (score > this.highScore) {
       this.highScore = score
-      localStorage.setItem('highScore', String(score))
+      localStorage.setItem('microcruise-highScore', String(score))
     }
 
     this.ui.playTitleAnimation()
@@ -804,6 +836,13 @@ export class Game extends Scene {
   }
 
   update(_time: number, delta: number): void {
+    // the nitro speed lines run above the pause/menu early-outs so the
+    // overlay can finish fading out (instead of freezing) when a run
+    // ends mid-boost
+    this.speedLines.update(
+      (delta / 1000) * this.timeScale,
+      !this.paused && !this.menuCruising && this.nitroActive,
+    )
     if (this.menuCruising) {
       this.updateMenuCruise((delta / 1000) * this.timeScale)
       return
@@ -814,6 +853,19 @@ export class Game extends Scene {
     const offRoad = Math.abs(this.playerX) > 1
     this.damageCooldown = Math.max(0, this.damageCooldown - dt)
     this.impactSkidTime = Math.max(0, this.impactSkidTime - dt)
+
+    // nitro: boosting requires the key held, enough pace to sell it, and
+    // fuel in the budget. Compute it once here so the physics, effects,
+    // and sound all read the same flag; drain the budget while it burns
+    this.nitroActive =
+      !this.outOfTime &&
+      this.cursors.space.isDown &&
+      this.speed > 60 &&
+      this.nitroMs > 0
+    if (this.nitroActive) {
+      this.nitroMs = Math.max(0, this.nitroMs - dt * 1000)
+    }
+    this.ui.setNitro(this.nitroMs)
 
     // on fire: health bleeds away and the car can burn out completely
     if (this.health < BURN_THRESHOLD) {
@@ -923,6 +975,19 @@ export class Game extends Scene {
       )
     }
     this.skidMarks.update(this.road, this.distance)
+    // nitro rides the car up the screen (eased) so the road appears to
+    // rush past faster
+    const nitro = this.nitroActive
+    // whoosh on engage, fade out on release
+    if (nitro !== this.nitroSoundOn) {
+      this.nitroSoundOn = nitro
+      if (nitro) this.startNitroSound()
+      else this.stopNitroSound()
+    }
+    this.carLift +=
+      ((nitro ? NITRO_LIFT : 0) - this.carLift) *
+      Math.min(1, NITRO_LIFT_RATE * dt)
+    this.car.setLift(this.carLift)
     const rolling = this.speed > 0
     this.car.draw(
       rolling ? this.steerValue : 0,
@@ -937,7 +1002,7 @@ export class Game extends Scene {
     this.updateCoins()
     this.updateTraffic(dt)
     this.handleCollisions()
-    this.updateCarShake(offRoad, tiresSmoking)
+    this.updateCarShake(offRoad, tiresSmoking, nitro)
   }
 
   // the screech: play the bite once, chain into the sustain, and on
@@ -962,6 +1027,20 @@ export class Game extends Scene {
       volume: 0,
       duration: 150,
       onComplete: () => this.driftSound.stop(),
+    })
+  }
+
+  private startNitroSound() {
+    this.tweens.killTweensOf(this.nitroSound)
+    this.nitroSound.play({ loop: false, volume: NITRO_VOLUME })
+  }
+
+  private stopNitroSound() {
+    this.tweens.add({
+      targets: this.nitroSound,
+      volume: 0,
+      duration: 250,
+      onComplete: () => this.nitroSound.stop(),
     })
   }
 
@@ -1037,9 +1116,11 @@ export class Game extends Scene {
   private updateSpeed(dt: number, offRoad: boolean) {
     // each gear tops out at its own speed, with low gears accelerating
     // hardest; above the cap (after a downshift) the engine drags speed
-    // back down toward it
+    // back down toward it. Nitro only boosts the pull, not the ceiling
+    const nitro = this.nitroActive
     const gearMax = GEAR_MAX[this.gear - 1] * this.maxSpeed
-    const gearAccel = ACCEL * GEAR_ACCEL[this.gear - 1]
+    const gearAccel =
+      ACCEL * GEAR_ACCEL[this.gear - 1] * (nitro ? NITRO_ACCEL_FACTOR : 1)
     if (this.speed > gearMax) {
       this.speed = Math.max(gearMax, this.speed - ENGINE_BRAKE * dt)
     } else if (this.driftDir !== 0) {
@@ -1217,28 +1298,26 @@ export class Game extends Scene {
         Math.abs(this.playerX - coin.laneOffset) <
           COIN_COLLIDE_LANE * laneScale()
       ) {
-        this.coinScore += COIN_POINTS
-        // a quick string of pickups chimes at rising pitch; a pause
-        // between coins resets it to the base rate
-        this.coinCombo =
-          this.time.now - this.lastCoinAt < COIN_COMBO_WINDOW_MS
-            ? this.coinCombo + 1
-            : 0
-        this.lastCoinAt = this.time.now
-        this.sound.play('coin', {
-          volume: 0.5,
-          rate: Math.min(
-            COIN_COMBO_RATE_MAX,
-            1 + this.coinCombo * COIN_COMBO_RATE_STEP,
-          ),
-        })
-        this.car.emitCoin()
+        this.collectCoin()
         coin.destroy()
         return false
       }
       coin.update(this.road)
       return true
     })
+  }
+
+  private collectCoin() {
+    // each coin also tops up the nitro budget, capped at the max
+    this.nitroMs = Math.min(NITRO_MAX_MS, this.nitroMs + NITRO_PER_COIN_MS)
+    // the chime's pitch reads the now-updated tank: fuller tank = higher
+    // pitch, so filling up sweeps upward and a full tank always tops out
+    const fill = this.nitroMs / NITRO_MAX_MS
+    this.sound.play('coin', {
+      volume: 0.5,
+      rate: COIN_RATE_EMPTY + fill * (COIN_RATE_FULL - COIN_RATE_EMPTY),
+    })
+    this.car.emitCoin()
   }
 
   // traffic drives itself; recycle a car onto the road ahead once it falls
@@ -1383,13 +1462,18 @@ export class Game extends Scene {
   // rattle the car (not the camera) while off-road at speed — ramping in
   // above the threshold, calm once slowed to a crawl — or while the
   // tires are smoking under a burnout or hard braking
-  private updateCarShake(offRoad: boolean, tiresSmoking: boolean) {
+  private updateCarShake(
+    offRoad: boolean,
+    tiresSmoking: boolean,
+    nitro: boolean,
+  ) {
     let shake = 0
     if (offRoad && this.speed > OFFROAD_SHAKE_MIN_SPEED) {
       shake =
         Math.min(1, this.speed / OFFROAD_SHAKE_MIN_SPEED - 1) * OFFROAD_SHAKE
     }
     if (tiresSmoking) shake = Math.max(shake, BURNOUT_SHAKE)
+    if (nitro) shake = Math.max(shake, NITRO_SHAKE)
     this.car.setShake(shake)
   }
 }

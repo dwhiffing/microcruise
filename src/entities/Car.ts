@@ -78,6 +78,9 @@ export class Car {
   private shakeAmount = 0 // continuous rattle (px), set every live frame
   private impactJolt = 0 // decaying rattle kicked off by a collision
   private braking = false // swaps to the lit-taillight sheet
+  // px the sprite is lifted up its racing spot (nitro rides it up the
+  // screen so the road appears to rush past faster); the scene eases it
+  private liftOffset = 0
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
@@ -244,6 +247,12 @@ export class Car {
   // a collision rattles the car hard for a moment
   jolt(strength = 1.5) {
     this.impactJolt = strength
+  }
+
+  // how far up the screen the car rides (px above its racing spot); the
+  // scene eases this toward a nitro target and back to 0
+  setLift(px: number) {
+    this.liftOffset = px
   }
 
   private updateParticles(_time: number, delta: number) {
@@ -460,6 +469,7 @@ export class Car {
   reset() {
     this.braking = false
     this.unwinding = false
+    this.liftOffset = 0
     this.driftTick = 0
     this.currentFrame = 0
     this.facing = 1
@@ -492,7 +502,7 @@ export class Car {
     // fixed racing position
     const shake = Math.max(this.shakeAmount, this.impactJolt)
     this.sprite.x = GAME_WIDTH / 2 + (Math.random() - 0.5) * shake
-    this.sprite.y = HOME_Y + (Math.random() - 0.5) * shake
+    this.sprite.y = HOME_Y - this.liftOffset + (Math.random() - 0.5) * shake
 
     // drifting ramps through the lean frames to full lock (frame 5) at a
     // visible pace instead of snapping there

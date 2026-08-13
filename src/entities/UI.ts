@@ -1,4 +1,5 @@
 import { GameObjects, Scene } from 'phaser'
+import { NITRO_PER_COIN_MS } from '../constants'
 
 // speedometer bar heights, left to right. Each pixel is 5 mph, so the 43
 // pixels span 0-215 mph; bars light bottom-up as speed climbs
@@ -7,6 +8,9 @@ const MPH_PER_PIXEL = 5
 const SPEEDO_PIXELS = 43 // sum of SPEEDO_BARS
 const SPEEDO_RIGHT = 63 // right edge of the last bar
 const SPEEDO_BOTTOM = 9 // row just below the bars
+
+const NITRO_DOTS = 11
+const NITRO_DOT_COLOR = 0xff4c1a
 
 type HudElement = Phaser.GameObjects.GameObject &
   Phaser.GameObjects.Components.Alpha &
@@ -28,6 +32,7 @@ export class UI {
   private speedo: GameObjects.Graphics
   private speedoBg: GameObjects.Graphics
   private speedoText: GameObjects.BitmapText
+  private nitroDots: GameObjects.Graphics
   private gearDigit: GameObjects.Sprite
   private scoreHud: GameObjects.BitmapText
   private rpmBg: GameObjects.Rectangle
@@ -180,6 +185,11 @@ export class UI {
       .setDepth(10)
       .setAlpha(0.6)
       .setVisible(false)
+    this.nitroDots = scene.add
+      .graphics()
+      .setDepth(10)
+      .setAlpha(0.9)
+      .setVisible(false)
 
     // remember each element's designed alpha so the HUD fade-in can
     // restore them individually
@@ -188,6 +198,7 @@ export class UI {
       this.speedo,
       this.speedoBg,
       this.speedoText,
+      this.nitroDots,
       this.gearDigit,
       this.scoreHud,
       this.rpmBg,
@@ -220,6 +231,18 @@ export class UI {
       }
       start += height
     })
+  }
+
+  // nitro budget: fill one orange dot per whole (or part) unit of stored
+  // boost, right-aligned under the speedometer bars, emptying as it burns
+  setNitro(ms: number) {
+    const filled = Math.min(NITRO_DOTS, Math.ceil(ms / NITRO_PER_COIN_MS))
+    this.nitroDots.clear().setVisible(true)
+    this.nitroDots.fillStyle(NITRO_DOT_COLOR)
+    for (let i = 0; i < filled; i++) {
+      const x = SPEEDO_RIGHT - (NITRO_DOTS - 1 - i) * 2 - 1
+      this.nitroDots.fillRect(x, 8, 1, 1)
+    }
   }
 
   // top-left cluster: current gear (yellow), live score (white, right
@@ -470,6 +493,7 @@ export class UI {
     this.speedo.setVisible(false)
     this.speedoBg.setVisible(false)
     this.speedoText.setVisible(false)
+    this.nitroDots.setVisible(false)
     this.gearDigit.setVisible(false)
     this.scoreHud.setVisible(false)
     this.rpmBg.setVisible(false)

@@ -57,7 +57,7 @@ const OCCLUSION_SLACK = 0.25
 // the horizon row: everything nearer the horizon is always shown, so the
 // distant dots clustered around it hold steady over rolling terrain
 // instead of blinking behind every little crest
-const OCCLUSION_MIN_DROP = 1
+const OCCLUSION_MIN_DROP = 0
 
 // renders the track as a pseudo-3D road: sweeps the visible segments each
 // frame into filled trapezoids, scrolls the sky, and projects world-space
@@ -81,6 +81,9 @@ export class Road {
   // even while gameplay is paused (e.g. the reset fast-forward)
   onWorldTint?: (tint: number) => void
   private dayTween?: Phaser.Tweens.Tween
+  // the sky layers' scroll-home tweens, stopped individually on re-entry
+  // (never via killTweensOf, which would take skyline slides with it)
+  private skyScrollTweens: Phaser.Tweens.Tween[] = []
   // the level's ground palette (COLORS with theme overrides blended in);
   // the day/night multiply applies on top of these each frame
   private baseColors = { ...COLORS }
@@ -183,7 +186,20 @@ export class Road {
   // the old one slides down out of view (behind the road), then the new
   // one slides up into place from below, rather than crossfading
   setSkyline(texture: string, duration = 8000) {
-    if (this.skyFgTexture === texture) return
+    if (this.skyFgTexture === texture) {
+      // an interrupted transition can strand the right sheet part-way
+      // down (its slide killed after the texture was already recorded) —
+      // bring it home instead of assuming it's in place
+      if (this.skyFg.y !== 0 && !this.scene.tweens.isTweening(this.skyFg)) {
+        this.scene.tweens.add({
+          targets: this.skyFg,
+          y: 0,
+          duration: Math.max(1, duration / 2),
+          ease: 'Sine.easeInOut',
+        })
+      }
+      return
+    }
     this.skyFgTexture = texture
     this.scene.tweens.killTweensOf(this.skyFg)
     if (duration <= 0) {
@@ -235,17 +251,21 @@ export class Road {
   resetDayCycle(duration = 1000) {
     // scroll each sky layer back to its home alignment over the same
     // ride — to the nearest tile wrap, so it's a short drift, and the
-    // snap-to-0 in reset() lands on an identical-looking frame
-    for (const layer of [this.skyFg, this.skyBg, this.stars]) {
-      this.scene.tweens.killTweensOf(layer)
-      const wrap = layer.frame.width
-      this.scene.tweens.add({
-        targets: layer,
-        tilePositionX: Math.round(layer.tilePositionX / wrap) * wrap,
-        duration,
-        ease: 'Sine.easeInOut',
-      })
-    }
+    // snap-to-0 in reset() lands on an identical-looking frame. Only the
+    // previous scroll tweens are stopped: killTweensOf(layer) would also
+    // kill a mid-flight setSkyline slide, stranding the skyline sunk
+    this.skyScrollTweens.forEach((tween) => tween.stop())
+    this.skyScrollTweens = [this.skyFg, this.skyBg, this.stars].map(
+      (layer) => {
+        const wrap = layer.frame.width
+        return this.scene.tweens.add({
+          targets: layer,
+          tilePositionX: Math.round(layer.tilePositionX / wrap) * wrap,
+          duration,
+          ease: 'Sine.easeInOut',
+        })
+      },
+    )
 
     this.dayTween?.stop()
     if (this.dayTime === 0) return

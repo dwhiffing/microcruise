@@ -85,6 +85,9 @@ export class Car {
   // px the sprite is lifted up its racing spot (nitro rides it up the
   // screen so the road appears to rush past faster); the scene eases it
   private liftOffset = 0
+  // px the sprite is slid sideways off centre (the scene drives it from
+  // the car's lateral momentum, so slides visibly cross the frame)
+  private slideOffset = 0
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
@@ -259,6 +262,11 @@ export class Car {
     this.liftOffset = px
   }
 
+  // how far sideways the car rides off screen centre (px)
+  setSlide(px: number) {
+    this.slideOffset = px
+  }
+
   private updateParticles(_time: number, delta: number) {
     const dt = delta / 1000
     this.impactJolt = Math.max(0, this.impactJolt - 12 * dt)
@@ -424,6 +432,9 @@ export class Car {
   // the car is done: hide it (and its damage effects), play the explosion
   // once, then hand control back
   explode(onComplete: () => void) {
+    // cover the car where it actually is (it may be riding a nitro
+    // lift or hill bob when it dies), not its at-rest spot
+    this.explosion.setPosition(this.sprite.x, this.sprite.y + 8)
     this.sprite.setVisible(false)
     this.smoke.setVisible(false).stop()
     this.fire.setVisible(false).stop()
@@ -488,6 +499,7 @@ export class Car {
     this.braking = false
     this.unwinding = false
     this.liftOffset = 0
+    this.slideOffset = 0
     this.driftTick = 0
     this.currentFrame = 0
     this.facing = 1
@@ -517,10 +529,17 @@ export class Car {
   ) {
     // the car rattles in place instead of the camera: burnout/off-road
     // jitter or a collision jolt, whichever is stronger, around its
-    // fixed racing position
+    // racing position. The 64px framebuffer rounds render positions to
+    // whole pixels, so sub-pixel jitter silently vanishes depending on
+    // where lift/bob park the fraction — the shake works in whole
+    // pixels instead, its amount the EXPECTED displacement: 0.15 lands
+    // a 1px kick on ~15% of frames, 1.5 kicks 1-2px every frame
     const shake = Math.max(this.shakeAmount, this.impactJolt)
-    this.sprite.x = GAME_WIDTH / 2 + (Math.random() - 0.5) * shake
-    this.sprite.y = HOME_Y - this.liftOffset + (Math.random() - 0.5) * shake
+    const kick = () =>
+      (Math.random() < 0.5 ? -1 : 1) *
+      (Math.random() < shake % 1 ? Math.ceil(shake) : Math.floor(shake))
+    this.sprite.x = GAME_WIDTH / 2 + this.slideOffset + kick()
+    this.sprite.y = HOME_Y - this.liftOffset + kick()
 
     // drifting ramps through the lean frames to full lock (frame 5) at a
     // visible pace instead of snapping there
@@ -609,11 +628,14 @@ export class Car {
   }
 
   // smoke/fire ride the car's rear, which swings 1px per lean frame away
-  // from the direction of the turn
+  // from the direction of the turn — and ride its y too, so they stay
+  // seated through the nitro lift, hill bob, and shake kicks
   private positionEffects() {
     const rear = (this.facing < 0 ? -1 : 1) * this.currentFrame
     this.fire.x = this.sprite.x + 1 + rear
     this.smoke.x = this.sprite.x + rear
+    this.fire.y = this.sprite.y - 5
+    this.smoke.y = this.sprite.y - 1
   }
 
   destroy() {

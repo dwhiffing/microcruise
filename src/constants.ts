@@ -51,7 +51,7 @@ export const SKY_PHASES = [
   { tint: 0x4a5a8e, bg: 0x0b0e2a, drop: 24, world: 0x55628f }, // night
 ]
 
-export const MAX_SPEED = 650
+export const MAX_SPEED = 750
 // gears: each gear's top speed as a fraction of MAX_SPEED, and its
 // acceleration multiplier on ACCEL — low gears pull hard but run out fast
 export const GEAR_MAX = [0.18, 0.34, 0.5, 0.66, 0.83, 1]
@@ -118,28 +118,91 @@ export const OFFROAD_SHAKE = 0.2
 export const BURNOUT_SHAKE = 0.1
 // no shake below this speed; full shake at twice it
 export const OFFROAD_SHAKE_MIN_SPEED = 5
-
-export const STEER_SPEED = 6
-// fraction of the wheel's remaining travel covered per second while held:
-// taps bite fast, then growth falls off approaching full lock (~63% of
-// the way after 1/rate s, ~95% after 3/rate s)
-export const STEER_RATE = 0.8
-// how fast the wheel recenters when released
-export const STEER_RETURN = 1.2
-export const CENTRIFUGAL = 4.0
 // speed lost per second per unit of gradient when climbing
 export const SLOPE_DRAG = 120
 
+// ---- in-the-world car feel ----
+// the car sprite is not bolted to one screen pixel: it slides across the
+// frame with its sideways momentum and rides over the terrain, so the
+// player reads as IN the environment instead of floating over it.
+// px of screen shift per lane-unit/s of sideways momentum (and its cap)
+export const CAR_SLIDE_SHIFT = 1.2
+export const CAR_SLIDE_MAX = 2
+// suspension: px of lift/squat per unit of slope change just ahead —
+// the car pops over crests and settles into dips. 0 = glued flat
+export const CAR_HILL_BOB = 40
+
+export const STEER_SPEED = 6
+// the tires lose bite near top speed: steering authority starts fading
+// once speed passes this fraction of the (level-scaled) max, sliding
+// down to the floor fraction at flat-out — so near the cap the wheel
+// answers at half strength and sharp bends demand braking first
+export const STEER_FALLOFF_START = 0.7
+export const STEER_FALLOFF_FLOOR = 0.3
+// fraction of the wheel's remaining travel covered per second while held:
+// taps bite fast, then growth falls off approaching full lock (~63% of
+// the way after 1/rate s, ~95% after 3/rate s)
+export const STEER_RATE = 0.7
+// countersteer bites: while the held direction opposes where the wheel
+// currently points, the wheel moves this many times faster — flicking
+// out of a turn is immediate even though easing into one stays gradual.
+// 1 = off
+export const STEER_FLIP_BOOST = 2.5
+// how fast the wheel recenters when released
+export const STEER_RETURN = 2
+// outward ACCELERATION through a curve (lane units/s^2 at full curve
+// intensity and REFERENCE_SPEED): inertia feeds it into the car's
+// lateral momentum every frame and grip bleeds it back off, so the
+// fling builds through a corner instead of reading as a steady sideways
+// wind. The slide it settles at is about CENTRIFUGAL / LATERAL_GRIP —
+// to keep a given feel, retune both together
+export const CENTRIFUGAL = 50
+
+// ---- lateral momentum ----
+// the car carries sideways momentum: steering and the curve's pull set
+// a target lateral velocity, and the tires drag the actual velocity
+// toward it at the grip rate (fraction of the gap closed per second).
+// High (20+) ~= the old direct steering; low (2-4) = ice — the car
+// keeps sliding after the key lifts and wants countersteer taps
+export const LATERAL_GRIP = 7
+// grip multiplier while the throttle is held: driven wheels have less
+// sideways bite, so lifting off the pedal mid-corner is how the nose
+// tucks in. 1 = the pedal doesn't affect grip
+export const THROTTLE_GRIP = 0.75
+// steering-authority multiplier while the brake is held: weight shifts
+// onto the front tires, so a stab of brake sharpens turn-in. 1 = off
+export const BRAKE_STEER_BOOST = 1.4
+// grip multiplier while the tires are REDUCING sideways speed (catching
+// a slide, straightening after release) rather than building it —
+// corrections snap while the outward fling stays progressive, which is
+// where "loose" and "fun" pull apart. Doesn't apply mid-drift, so the
+// drift float keeps its character. 1 = off
+export const GRIP_CATCH = 1.8
+// hard cap on how fast grip can change lateral velocity (lane units/s
+// per second). A curve whose centrifugal injection outruns it can't be
+// held at all — the car ploughs wide until braking shrinks the fling.
+// Keep it above CENTRIFUGAL-at-your-cruising-curve or every bend
+// saturates; well above steering demand (~STEER_SPEED * LATERAL_GRIP)
+// or the wheel itself feels capped. Infinity = off
+export const TRACTION = 90
+
 // drifting: tap brake while at least this fast with the wheel turned at
-// least this far to kick into a drift; while it lasts the engine only
-// delivers DRIFT_ACCEL_FACTOR of its normal gear acceleration, and the
-// centrifugal pull is scaled by DRIFT_GRIP — the car slides with the
-// curve instead of being flung out, so drifts hold bends that are too
-// fast to steer through normally
+// least this far to kick into a drift; while it lasts the sideways
+// tires scrub off DRIFT_DECEL speed per second, and the centrifugal
+// pull is scaled by DRIFT_GRIP — the car slides with the curve instead
+// of being flung out, so drifts hold bends that are too fast to steer
+// through normally, at the cost of pace
 export const DRIFT_MIN_SPEED = 250
-export const DRIFT_MIN_STEER = 0.01
-export const DRIFT_ACCEL_FACTOR = 0.1
-export const DRIFT_GRIP = 0.5
+export const DRIFT_MIN_STEER = 0.25
+export const DRIFT_DECEL = 30
+export const DRIFT_GRIP = 0.2
+// cornering hard at speed breaks the rear loose on its own: holding the
+// wheel one direction for this many continuous seconds, at or above
+// this fraction of the level's top speed, kicks into the same drift a
+// brake-tap starts. Infinity = never
+export const AUTO_DRIFT_TIME = 0.8
+export const AUTO_DRIFT_SPEED = 0.8
+
 // a drift tolerates taps of countersteer: holding the opposite
 // direction for this many continuous seconds ends it; going this long
 // without pressing the drift direction (neutral or opposite) also ends
@@ -276,24 +339,24 @@ export const LEVELS: LevelSpec[] = [
     // 1: grassland — wide and forgiving, light traffic, gentle bends
     name: 'grass',
     roadWidth: 60,
-    turnStrength: 1.3,
+    turnStrength: 0.95,
     curveChance: 1,
-    straightLen: [30, 45],
-    checkpointInterval: 6000,
+    straightLen: [20, 40],
+    checkpointInterval: 10000,
     trafficMix: { motorcycle: 0.5, car2: 0.35, truck: 0.15 },
-    trafficCount: 8,
+    trafficCount: 6,
     maxSpeedFactor: 1,
   },
   {
     // 2: desert — tighter road, sharper turns, trucks join the flow
     name: 'desert',
-    roadWidth: 50,
-    turnStrength: 1.25,
+    roadWidth: 55,
+    turnStrength: 1.3,
     curveChance: 1,
-    straightLen: [35, 45],
-    checkpointInterval: 8500,
+    straightLen: [20, 35],
+    checkpointInterval: 10000,
     trafficMix: { motorcycle: 0.3, car2: 0.3, truck: 0.3 },
-    trafficCount: 10,
+    trafficCount: 7,
     maxSpeedFactor: 1,
     colors: { grass: 0xd7b98a, grassAlt: 0xc2a069 }, // beige sands
     skyFg: 'desert-sky-fg',
@@ -302,13 +365,13 @@ export const LEVELS: LevelSpec[] = [
   {
     // 3: snow — narrow, twisty, heavy traffic, full speed unlocked
     name: 'snow',
-    roadWidth: 40,
+    roadWidth: 50,
     turnStrength: 1.5,
-    curveChance: 1,
-    straightLen: [25, 35],
+    curveChance: 0.9,
+    straightLen: [10, 30],
     checkpointInterval: 10000,
     trafficMix: { motorcycle: 0.1, car2: 0.3, truck: 0.3, semi: 0.3 },
-    trafficCount: 12,
+    trafficCount: 8,
     maxSpeedFactor: 1,
     colors: { grass: 0xffffff, grassAlt: 0xb8dcf2 }, // snow and ice
     skyFg: 'snow-sky-fg',

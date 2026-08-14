@@ -1,8 +1,11 @@
 import { Scene, Types } from 'phaser'
 import {
   ACCEL,
+  AUTO_DRIFT_SPEED,
+  AUTO_DRIFT_TIME,
   AUTO_SHIFT,
   BRAKE,
+  BRAKE_STEER_BOOST,
   BURN_DPS,
   BURN_THRESHOLD,
   BURNOUT_SHAKE,
@@ -10,6 +13,9 @@ import {
   CAMERA_HEIGHT,
   CAR_COLLIDE_LANE,
   CAR_COLLIDE_Z,
+  CAR_HILL_BOB,
+  CAR_SLIDE_MAX,
+  CAR_SLIDE_SHIFT,
   CENTRIFUGAL,
   CHECKPOINT_BONUS,
   CHECKPOINT_REPAIR,
@@ -23,8 +29,8 @@ import {
   DAMAGE_COOLDOWN,
   DEBUG_KEYS,
   DRAW_SEGMENTS,
-  DRIFT_ACCEL_FACTOR,
   DRIFT_COUNTERSTEER_TIME,
+  DRIFT_DECEL,
   DRIFT_GRIP,
   DRIFT_MAX_TIME,
   DRIFT_MIN_SPEED,
@@ -35,11 +41,14 @@ import {
   ENGINE_RATE_MIN,
   ENGINE_VOLUME,
   GAME_HEIGHT,
+  GAME_WIDTH,
   GEAR_ACCEL,
   GEAR_MAX,
+  GRIP_CATCH,
   HORIZON_Y,
   IMPACT_SKID_TIME,
   LANES,
+  LATERAL_GRIP,
   LEVELS,
   MAX_HEALTH,
   MAX_SCORE,
@@ -68,10 +77,15 @@ import {
   SKIP_COUNTDOWN,
   SLOPE_DRAG,
   START_SPEED_MPH,
+  STEER_FALLOFF_FLOOR,
+  STEER_FALLOFF_START,
+  STEER_FLIP_BOOST,
   STEER_RATE,
   STEER_RETURN,
   STEER_SPEED,
+  THROTTLE_GRIP,
   TOP_SPEED_MPH,
+  TRACTION,
   TRAFFIC_MAX_SPEED,
   TRAFFIC_MIN_SPEED,
   TURN_SIGN_GAP,
@@ -89,6 +103,7 @@ import { RoadObject } from '../entities/RoadObject'
 import { Scenery } from '../entities/Scenery'
 import { SkidMarks } from '../entities/SkidMarks'
 import { SpeedLines } from '../entities/SpeedLines'
+import { CoinRun } from '../entities/Track'
 import { UI } from '../entities/UI'
 import { laneScale, world } from '../world'
 
@@ -118,6 +133,11 @@ const COIN_RATE_EMPTY = 1
 const COIN_RATE_FULL = 2
 // burst colour of a turn sign smashed at speed (the chevron's red)
 const SIGN_SMASH_COLOR = 0xddab2e
+// screen rows between the horizon and the road surface at the player's
+// depth on flat ground (26 + 32 = row 58): the flat-road anchor the skid
+// stamp uses to translate the sprite's screen lift back into world depth
+const PLAYER_ROW_DROP =
+  ((CAMERA_DEPTH / PLAYER_Z) * CAMERA_HEIGHT * GAME_HEIGHT) / 2
 
 // traffic car-following: an NPC closing on a slower one in its lane
 // matches its speed once within this many world units, instead of
@@ -135,8 +155,8 @@ const LANE_WANDER_MAX_S = 9
 // top of them, spread out so cars trickle into view over the opening
 // seconds instead of all appearing at once. The far end stays inside the
 // +4000 cull window so the pack isn't relocated on the first frame
-const START_TRAFFIC_MIN_AHEAD = 50
-const START_TRAFFIC_SPREAD = 1000
+const START_TRAFFIC_MIN_AHEAD = 150
+const START_TRAFFIC_SPREAD = 1500
 
 export class Game extends Scene {
   public ui!: UI
@@ -182,9 +202,12 @@ export class Game extends Scene {
   private wasThrottleDown = false // last frame's gas, for tap edges
   private lastThrottleTapAt = -Infinity // when the gas was last pressed (ms)
   private carLift = 0 // eased px the car rides up the screen under nitro
+  private hillBob = 0 // eased px of suspension travel over crests/dips
   private playerX = 0 // -1..1 = on road, beyond that = grass
+  private playerVx = 0 // lateral velocity (lane units/s) — the car's sideways momentum
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
   private steerInput = 0 // raw held direction this frame: -1, 0, or 1
+  private steerHeldTime = 0 // continuous seconds the wheel has been held one way
   private driftDir = 0 // -1/1 while drifting in that direction, 0 otherwise
   private driftReleaseTime = 0 // seconds since the drift direction was held
   private driftCounterTime = 0 // seconds the opposite direction has been held
@@ -536,8 +559,10 @@ export class Game extends Scene {
     const zPen = 1 - Math.abs(dz) / halfZ
     const lanePen = 1 - Math.abs(dLane) / halfLane
     if (lanePen < zPen) {
-      // side swipe: shove the player out laterally, mild speed scrub
+      // side swipe: shove the player out laterally, mild speed scrub;
+      // any sideways momentum dies against the other car
       this.playerX = lane + side * halfLane
+      this.playerVx = 0
       this.bounceVx = side * 2
       this.takeDamage(this.speed * 0.5, damageFactor)
       this.speed *= 0.9
@@ -760,6 +785,7 @@ export class Game extends Scene {
     this.speed = this.startSpeed
     this.gear = this.startGear
     this.carLift = 0
+    this.hillBob = 0
     this.nitroMs = 0
     this.nitroActive = false
     // the double-tap detector starts cold: no phantom arm from presses
@@ -768,6 +794,7 @@ export class Game extends Scene {
     this.wasThrottleDown = false
     this.lastThrottleTapAt = -Infinity
     this.playerX = 0
+    this.playerVx = 0
     this.steerValue = 0
     this.driftDir = 0
     this.bounceVx = 0
@@ -786,9 +813,14 @@ export class Game extends Scene {
     this.checkpoints = []
     this.coins.forEach((coin) => coin.destroy())
     this.coins = []
-    // coin-turns flagged during the menu cruise are already behind or
-    // mid-view — discard them so the run starts clean
-    this.road.drainCoinRuns()
+    // coin-turns flagged while the menu cruised: runs still ahead are
+    // the fresh track's opening turns — spawn them now (discarding them
+    // left the run's first turn coinless). Runs already passed during
+    // the cruise are dropped; runs on track cut by the straighten were
+    // already filtered out by the track itself
+    for (const run of this.road.drainCoinRuns()) {
+      if (run.z > this.distance + PLAYER_Z) this.spawnCoinRun(run)
+    }
 
     this.isGameOver = false
     // TODO: re-enable music
@@ -964,6 +996,9 @@ export class Game extends Scene {
         this.skidMarks.update(this.road, this.distance)
         this.scenery.update(this.road, this.distance)
         this.updateTurnSigns()
+        // keeps the opening turn's coins (spawned in beginRun) placed
+        // and scrolling; nothing collects while the entrance plays
+        this.scrollCoins(false)
         this.resizeTraffic(dt, this.startSpeed)
       }
       return
@@ -1118,20 +1153,6 @@ export class Game extends Scene {
     this.distance += this.speed * dt
 
     this.road.update(this.distance, this.playerX, dt)
-    // the tires always leave a trail: barely-there while rolling, dark
-    // skid strips while spinning. Stamped after the distance advance so
-    // the newest mark sits exactly under the car, not a frame behind
-    if (this.speed > 0) {
-      this.skidMarks.add(
-        this.distance + PLAYER_Z,
-        this.playerX,
-        offRoad,
-        wheelsSpinning,
-        this.steerValue,
-        this.driftDir,
-      )
-    }
-    this.skidMarks.update(this.road, this.distance)
     // nitro rides the car up the screen (eased) so the road appears to
     // rush past faster
     const nitro = this.nitroActive
@@ -1144,7 +1165,45 @@ export class Game extends Scene {
     this.carLift +=
       ((nitro ? NITRO_LIFT : 0) - this.carLift) *
       Math.min(1, NITRO_LIFT_RATE * dt)
-    this.car.setLift(this.carLift)
+    // in-the-world feel: the sprite rides the terrain (popping over
+    // crests, settling into dips, from the slope change just ahead) and
+    // slides across the frame with its sideways momentum, instead of
+    // being bolted to one pixel while the world pans underneath
+    const zCar = this.distance + PLAYER_Z
+    const crest = this.road.slopeAt(zCar + 30) - this.road.slopeAt(zCar)
+    const bobTarget = Phaser.Math.Clamp(-crest * CAR_HILL_BOB, -3, 4)
+    this.hillBob += (bobTarget - this.hillBob) * Math.min(1, 10 * dt)
+    const carLiftTotal = this.carLift + this.hillBob
+    const carSlide = Phaser.Math.Clamp(
+      this.playerVx * CAR_SLIDE_SHIFT,
+      -CAR_SLIDE_MAX,
+      CAR_SLIDE_MAX,
+    )
+    this.car.setLift(carLiftTotal)
+    this.car.setSlide(carSlide)
+    // the tires always leave a trail: barely-there while rolling, dark
+    // skid strips while spinning. Stamped after the distance advance so
+    // the newest mark sits exactly under the car, not a frame behind —
+    // and under where the sprite actually IS: its lift raises the wheel
+    // row, which on the road surface is a slightly deeper stamp, and its
+    // sideways slide converts back to a lane shift at the player plane
+    if (this.speed > 0) {
+      const stampZ =
+        (PLAYER_ROW_DROP * PLAYER_Z) /
+        Math.max(1, PLAYER_ROW_DROP - carLiftTotal)
+      const laneShift =
+        carSlide /
+        ((CAMERA_DEPTH / PLAYER_Z) * (GAME_WIDTH / 2) * world.roadWidth)
+      this.skidMarks.add(
+        this.distance + stampZ,
+        this.playerX + laneShift,
+        offRoad,
+        wheelsSpinning,
+        this.steerValue,
+        this.driftDir,
+      )
+    }
+    this.skidMarks.update(this.road, this.distance)
     const rolling = this.speed > 0
     this.car.draw(
       rolling ? this.steerValue : 0,
@@ -1242,6 +1301,10 @@ export class Game extends Scene {
       // without pressing the drift direction at all; and no drift
       // outlasts the hard time cap
       this.driftTime += dt
+      // the wheel-held clock stays zeroed through a drift, so when one
+      // ends (timeout included) a still-held wheel must earn the next
+      // auto-kick from scratch instead of re-drifting instantly
+      this.steerHeldTime = 0
       this.driftCounterTime =
         this.steerInput === -this.driftDir ? this.driftCounterTime + dt : 0
       this.driftReleaseTime =
@@ -1257,13 +1320,18 @@ export class Game extends Scene {
     }
     this.driftReleaseTime = 0
     this.driftCounterTime = 0
-    if (
-      !this.outOfTime &&
+    const brakeKick =
       Phaser.Input.Keyboard.JustDown(this.keyC) &&
       this.speed >= DRIFT_MIN_SPEED &&
       Math.abs(this.steerValue) >= DRIFT_MIN_STEER &&
       Math.sign(this.steerValue) === this.steerInput
-    ) {
+    // cornering hard at speed breaks the rear loose on its own: the
+    // wheel held one way long enough near the top end kicks into the
+    // same drift, no brake tap needed
+    const autoKick =
+      this.steerHeldTime >= AUTO_DRIFT_TIME &&
+      this.speed >= this.maxSpeed * AUTO_DRIFT_SPEED
+    if (!this.outOfTime && (brakeKick || autoKick)) {
       this.driftDir = this.steerInput
       this.driftTime = 0
     }
@@ -1271,8 +1339,15 @@ export class Game extends Scene {
 
   // gears 1-6: automatic (shift up at redline under throttle, down as
   // speed falls) or instant manual shifts on up/down, per the
-  // transmission picked at the start menu
+  // transmission picked at the start menu. Nitro shifts for you even on
+  // the manual box — the surge outruns hand-shifting, so the boost
+  // handles the gears until it cuts
   private updateGears() {
+    // read the shift keys every frame — JustDown latches until read, so
+    // a tap during a boost would otherwise fire a stale shift the moment
+    // the boost cuts
+    const shiftUp = Phaser.Input.Keyboard.JustDown(this.cursors.up)
+    const shiftDown = Phaser.Input.Keyboard.JustDown(this.cursors.down)
     if (this.autoShift) {
       const gearMax = GEAR_MAX[this.gear - 1] * this.maxSpeed
       if (
@@ -1293,10 +1368,10 @@ export class Game extends Scene {
       return
     }
 
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
+    if (shiftUp) {
       this.gear = Math.min(6, this.gear + 1)
     }
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.down)) {
+    if (shiftDown) {
       this.gear = Math.max(1, this.gear - 1)
     }
   }
@@ -1312,13 +1387,10 @@ export class Game extends Scene {
     if (this.speed > gearMax) {
       this.speed = Math.max(gearMax, this.speed - ENGINE_BRAKE * dt)
     } else if (this.driftDir !== 0) {
-      // drifting: the tires are sideways, so the engine only puts down a
-      // fraction of its normal pull (throttle/brake keys are overridden)
-      this.speed +=
-        gearAccel *
-        DRIFT_ACCEL_FACTOR *
-        (offRoad ? OFFROAD_ACCEL_FACTOR : 1) *
-        dt
+      // drifting: the tires are sideways, scrubbing speed off — the
+      // slide bleeds DRIFT_DECEL per second for as long as it holds
+      // (throttle/brake keys are overridden)
+      this.speed -= DRIFT_DECEL * dt
       this.speed = Math.min(this.speed, gearMax)
     } else {
       const throttle = !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
@@ -1350,13 +1422,28 @@ export class Game extends Scene {
   // second — quick taps bite immediately, and the growth falls off as it
   // nears full lock. Releasing recenters at a constant rate.
   private updateSteering(dt: number) {
+    const prevInput = this.steerInput
     this.steerInput = this.outOfTime
       ? 0
       : (this.cursors.left.isDown ? -1 : 0) +
         (this.cursors.right.isDown ? 1 : 0)
+    // how long the wheel has been held continuously one way (feeds the
+    // auto-drift kick); releasing or flipping direction restarts it
+    this.steerHeldTime =
+      this.steerInput !== 0 && this.steerInput === prevInput
+        ? this.steerHeldTime + dt
+        : this.steerInput !== 0
+          ? dt
+          : 0
     if (this.steerInput !== 0) {
+      // countersteer crosses the wheel over much faster than it eases
+      // toward lock — otherwise a correction spends most of a second just
+      // reaching centre before it pushes the other way
+      const rate =
+        STEER_RATE *
+        (this.steerInput * this.steerValue < 0 ? STEER_FLIP_BOOST : 1)
       this.steerValue +=
-        (this.steerInput - this.steerValue) * Math.min(1, STEER_RATE * dt)
+        (this.steerInput - this.steerValue) * Math.min(1, rate * dt)
     } else {
       const maxStep = STEER_RETURN * dt
       this.steerValue += Phaser.Math.Clamp(-this.steerValue, -maxStep, maxStep)
@@ -1369,26 +1456,69 @@ export class Game extends Scene {
   // turns little, parked car not at all) up to a cap so there's no
   // hyper-twitch at max, while the pull is uncapped — every curve has a
   // max speed it can be held at.
+  // The car carries sideways momentum: the forces above set a target
+  // lateral velocity and grip drags the actual velocity toward it, so
+  // releasing the wheel doesn't stop the slide — catching it does.
   private updatePlayerX(dt: number) {
     const speedFactor = this.speed / REFERENCE_SPEED
-    const steerAuthority = Math.min(speedFactor, 1.2)
+    const drifting = this.driftDir !== 0
+    const throttle = !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
+    const braking = !this.outOfTime && this.keyC.isDown
+    // the tires lose bite approaching top speed: full authority up to
+    // STEER_FALLOFF_START of the cap, fading linearly to the floor at
+    // flat-out (the centrifugal pull below is untouched, so fast bends
+    // get doubly demanding)
+    const falloff = Phaser.Math.Clamp(
+      (this.speed / this.maxSpeed - STEER_FALLOFF_START) /
+        (1 - STEER_FALLOFF_START),
+      0,
+      1,
+    )
+    let steerAuthority =
+      Math.min(speedFactor, 1.2) * (1 - falloff * (1 - STEER_FALLOFF_FLOOR))
+    // weight transfer: braking loads the front tires and sharpens turn-in
+    if (braking && !drifting) steerAuthority *= BRAKE_STEER_BOOST
+    // inertia: the road bends away underneath while the car wants to go
+    // straight, so outward velocity ACCUMULATES through a curve — it's
+    // the grip step below that fights it back off. Drifting slides with
+    // the curve (the sideways tires bite), so only a fraction applies
+    this.playerVx -=
+      this.road.curveAt(this.distance + PLAYER_Z) *
+      CENTRIFUGAL *
+      (drifting ? DRIFT_GRIP : 1) *
+      speedFactor *
+      dt
+    // where the tires are trying to take the car: full grip holds the
+    // road's arc, so the target is the steered velocity alone
+    const targetVx = this.steerValue * STEER_SPEED * steerAuthority
+    // grip is softened under power (lift off to tuck the nose in) and
+    // slashed in a drift (the slide floats until the tires catch); the
+    // per-second velocity change is capped at TRACTION — a curve that
+    // injects outward speed faster than that can't be held at all, the
+    // car ploughs wide until braking shrinks the fling
+    let grip = LATERAL_GRIP
+    if (throttle && !drifting) grip *= THROTTLE_GRIP
+    if (drifting) grip *= DRIFT_GRIP
+    // catching grips harder than sliding out: when the tires are pulling
+    // the sideways speed DOWN (countersteer, release) they bite extra, so
+    // corrections snap while the outward fling stays progressive
+    const gap = targetVx - this.playerVx
+    if (!drifting && gap * this.playerVx <= 0) grip *= GRIP_CATCH
+    const dv = gap * Math.min(1, grip * dt)
+    const maxDv = TRACTION * dt
+    this.playerVx += Phaser.Math.Clamp(dv, -maxDv, maxDv)
     // every lateral force is scaled by laneScale(): playerX is a fraction
     // of the road's half-width, so without it a wider road would make the
     // same physical motion cover more ground
-    this.playerX +=
-      this.steerValue * STEER_SPEED * steerAuthority * laneScale() * dt
-    // drifting slides with the curve: only a fraction of the pull applies
-    this.playerX -=
-      this.road.curveAt(this.distance + PLAYER_Z) *
-      CENTRIFUGAL *
-      (this.driftDir !== 0 ? DRIFT_GRIP : 1) *
-      speedFactor *
-      laneScale() *
-      dt
+    this.playerX += this.playerVx * laneScale() * dt
     // collision knockback: a decaying lateral shove away from the hit
     this.playerX += this.bounceVx * laneScale() * dt
     this.bounceVx *= Math.max(0, 1 - 6 * dt)
-    this.playerX = Phaser.Math.Clamp(this.playerX, -5, 5)
+    const clamped = Phaser.Math.Clamp(this.playerX, -5, 5)
+    // pinned against the edge: drop the outward momentum so the car
+    // doesn't stick there once the key lifts
+    if (clamped !== this.playerX) this.playerVx = 0
+    this.playerX = clamped
   }
 
   // spawn a repeated run of chevrons on the outside shoulder just before
@@ -1461,18 +1591,22 @@ export class Game extends Scene {
     })
   }
 
-  // coins ride the bends: every few turns the track flags one (see
+  // coins ride the bends: every big turn the track flags one (see
   // Track), and a run of coins spreads evenly through it on a random
   // lane; driving through a coin banks its points onto the score
   private updateCoins() {
     for (const run of this.road.drainCoinRuns()) {
-      const lane = ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
-      const gap = run.length / COINS_PER_TURN
-      for (let i = 0; i < COINS_PER_TURN; i++) {
-        this.coins.push(new Coin(this, run.z + i * gap, lane))
-      }
+      this.spawnCoinRun(run)
     }
     this.scrollCoins(true)
+  }
+
+  private spawnCoinRun(run: CoinRun) {
+    const lane = ((Math.floor(Math.random() * LANES) + 0.5) / LANES) * 2 - 1
+    const gap = run.length / COINS_PER_TURN
+    for (let i = 0; i < COINS_PER_TURN; i++) {
+      this.coins.push(new Coin(this, run.z + i * gap, lane))
+    }
   }
 
   // cull coins that fall behind the camera, collect any the car is

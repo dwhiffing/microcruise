@@ -110,9 +110,10 @@ export class Track {
     for (let n = 0; n < 75; n++) this.pushSegment(0, y, y)
     this.genY = y
     this.lastCurve = 0
-    // drop warnings for turns that were cut away
+    // drop warnings and coin runs for turns that were cut away
     const cutZ = (last.index + 1) * SEGMENT_LENGTH
     this.pendingTurns = this.pendingTurns.filter((turn) => turn.z < cutZ)
+    this.pendingCoinRuns = this.pendingCoinRuns.filter((run) => run.z < cutZ)
     // aim the camera at a stripe-band boundary, so the view it parks on
     // matches a fresh track's opening view exactly
     const bandPeriod = RUMBLE_LENGTH * 2

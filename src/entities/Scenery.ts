@@ -110,7 +110,7 @@ export const DECALS: DecalSpec[] = [
     ],
     variants: {
       // recolour of the base sheet
-      desert: { texture: 'desert-bush2', smashColor: 0x007244 },
+      desert: { texture: 'desert-bush2', smashColor: 0xc2a069 },
       // its own smaller drift shape (18x23 frames)
       snow: {
         texture: 'snow-bush2',

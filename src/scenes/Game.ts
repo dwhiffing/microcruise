@@ -46,6 +46,7 @@ import {
   MAX_SPEED,
   MAX_TIME,
   NITRO_ACCEL_FACTOR,
+  NITRO_DOUBLE_TAP_MS,
   NITRO_LIFT,
   NITRO_LIFT_RATE,
   NITRO_MAX_MS,
@@ -176,7 +177,10 @@ export class Game extends Scene {
   private traffic: NpcCar[] = []
   private speed = 0
   private nitroMs = 0 // remaining nitro budget (ms), refilled by coins
-  private nitroActive = false // boosting this frame (held, moving, fuelled)
+  private nitroActive = false // boosting this frame (armed, moving, fuelled)
+  private nitroArmed = false // gas double-tapped and still held
+  private wasThrottleDown = false // last frame's gas, for tap edges
+  private lastThrottleTapAt = -Infinity // when the gas was last pressed (ms)
   private carLift = 0 // eased px the car rides up the screen under nitro
   private playerX = 0 // -1..1 = on road, beyond that = grass
   private steerValue = 0 // wheel position, -1 (full left) .. 1 (full right)
@@ -758,6 +762,11 @@ export class Game extends Scene {
     this.carLift = 0
     this.nitroMs = 0
     this.nitroActive = false
+    // the double-tap detector starts cold: no phantom arm from presses
+    // made during the menu or the previous run
+    this.nitroArmed = false
+    this.wasThrottleDown = false
+    this.lastThrottleTapAt = -Infinity
     this.playerX = 0
     this.steerValue = 0
     this.driftDir = 0
@@ -965,16 +974,28 @@ export class Game extends Scene {
     this.damageCooldown = Math.max(0, this.damageCooldown - dt)
     this.impactSkidTime = Math.max(0, this.impactSkidTime - dt)
 
-    // nitro: boosting requires the key held, enough pace to sell it, and
-    // fuel in the budget. Compute it once here so the physics, effects,
-    // and sound all read the same flag; drain the budget while it burns
-    this.nitroActive =
-      !this.outOfTime &&
-      this.cursors.space.isDown &&
-      this.speed > 60 &&
-      this.nitroMs > 0
+    // nitro arms on a double-tap-and-hold of the gas: a second throttle
+    // press landing within the tap window locks the boost on until the
+    // pedal lifts. Boosting still needs pace and fuel in the budget —
+    // computed once here so the physics, effects, and sound all read
+    // the same flag; the budget drains while it burns
+    const throttleDown =
+      !this.outOfTime && (this.keyZ.isDown || this.keyX.isDown)
+    if (throttleDown && !this.wasThrottleDown) {
+      if (this.time.now - this.lastThrottleTapAt < NITRO_DOUBLE_TAP_MS) {
+        this.nitroArmed = true
+      }
+      this.lastThrottleTapAt = this.time.now
+    }
+    if (!throttleDown) this.nitroArmed = false
+    this.wasThrottleDown = throttleDown
+    this.nitroActive = this.nitroArmed && this.speed > 60 && this.nitroMs > 0
     if (this.nitroActive) {
       this.nitroMs = Math.max(0, this.nitroMs - dt * 1000)
+      // running the tank dry disarms the double-tap: a coin grabbed
+      // while still holding the pedal shouldn't relight the boost —
+      // lift and double-tap again
+      if (this.nitroMs <= 0) this.nitroArmed = false
     }
     this.ui.setNitro(this.nitroMs)
 

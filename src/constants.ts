@@ -82,8 +82,11 @@ export const BRAKE = 300
 // rolling start: the run begins at this speed (mph on the gauge) instead
 // of from a standstill, so the car enters already moving
 export const START_SPEED_MPH = 60
-// nitro: held space bar multiplies the throttle's pull by this factor.
-// It doesn't raise any gear's ceiling — the car just reaches its normal
+// nitro: double-tap the gas and hold it to boost — the second press must
+// land within this window of the first
+export const NITRO_DOUBLE_TAP_MS = 250
+// while boosting, the throttle's pull is multiplied by this factor. It
+// doesn't raise any gear's ceiling — the car just reaches its normal
 // top speed faster
 export const NITRO_ACCEL_FACTOR = 5
 export const NITRO_LIFT = 4

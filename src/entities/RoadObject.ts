@@ -84,10 +84,15 @@ export class RoadObject {
       scaleExponent = 1,
       originY = 1,
     } = opts
+    // hidden until the first update() projects it into place — objects
+    // can be spawned after the frame's update pass (e.g. beginRun's
+    // opening-turn coins), and an unplaced sprite would flash at the
+    // screen origin for that frame
     this.sprite = scene.add
       .sprite(0, 0, texture)
       .setOrigin(0.5, originY)
       .setFlipX(flipX)
+      .setVisible(false)
     this.pixelsPerWorldUnit =
       ((GAME_WIDTH / 2) * worldWidth) / this.sprite.width
     this.ignoreOcclusion = ignoreOcclusion

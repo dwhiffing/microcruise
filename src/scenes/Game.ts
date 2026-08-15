@@ -35,6 +35,7 @@ import {
   DRIFT_MAX_TIME,
   DRIFT_MIN_SPEED,
   DRIFT_MIN_STEER,
+  DRIFT_PULL,
   DRIFT_RELEASE_TIME,
   ENGINE_BRAKE,
   ENGINE_RATE_MAX,
@@ -155,7 +156,7 @@ const LANE_WANDER_MAX_S = 9
 // top of them, spread out so cars trickle into view over the opening
 // seconds instead of all appearing at once. The far end stays inside the
 // +4000 cull window so the pack isn't relocated on the first frame
-const START_TRAFFIC_MIN_AHEAD = 150
+const START_TRAFFIC_MIN_AHEAD = 600
 const START_TRAFFIC_SPREAD = 1500
 
 export class Game extends Scene {
@@ -1485,7 +1486,7 @@ export class Game extends Scene {
     this.playerVx -=
       this.road.curveAt(this.distance + PLAYER_Z) *
       CENTRIFUGAL *
-      (drifting ? DRIFT_GRIP : 1) *
+      (drifting ? DRIFT_PULL : 1) *
       speedFactor *
       dt
     // where the tires are trying to take the car: full grip holds the

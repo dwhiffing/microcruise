@@ -56,7 +56,10 @@ const OCCLUSION_SLACK = 0.25
 // occlusion only applies to points at least this far (screen px) below
 // the horizon row: everything nearer the horizon is always shown, so the
 // distant dots clustered around it hold steady over rolling terrain
-// instead of blinking behind every little crest
+// instead of blinking behind every little crest. The exemption is capped
+// at the frame's terrain silhouette top (see skylineY) — on a climb the
+// road paints ABOVE the horizon row, and a fixed-row exemption there
+// wrongly revealed everything hidden behind the crest
 const OCCLUSION_MIN_DROP = 0
 
 // renders the track as a pseudo-3D road: sweeps the visible segments each
@@ -96,6 +99,11 @@ export class Road {
   private lastPlayerX = 0
   private camX = 0
   private camY = 0
+  // topmost screen row the road/terrain painted this frame — everything
+  // above it is sky. Caps the near-horizon occlusion exemption in
+  // project() so it can't reveal objects behind a crest that has climbed
+  // above the horizon row
+  private skylineY = GAME_HEIGHT
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
@@ -351,7 +359,8 @@ export class Road {
       screenY,
       scale,
       visible:
-        screenY < HORIZON_Y + OCCLUSION_MIN_DROP ||
+        screenY <
+          Math.min(HORIZON_Y + OCCLUSION_MIN_DROP, this.skylineY) ||
         screenY < seg.clipY + OCCLUSION_SLACK,
     }
   }
@@ -528,6 +537,7 @@ export class Road {
       clipY = sy2
       if (clipY <= 0) break
     }
+    this.skylineY = clipY
   }
 
   // paint one segment's slice of the frame: grass across the full width,

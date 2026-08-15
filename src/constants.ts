@@ -65,7 +65,7 @@ export const RPM_CURVE = 3
 // engine sound: one looping sample (a low-RPM on-throttle loop) is
 // pitch-bent across the rev range — the playback rate slides between
 // these bounds as the RPM bar goes 0 to redline
-export const ENGINE_VOLUME = 0.1
+export const ENGINE_VOLUME = 0.15
 export const ENGINE_RATE_MIN = 0.4
 export const ENGINE_RATE_MAX = 0.7
 // automatic transmission: shifts up at redline under throttle and back
@@ -188,14 +188,19 @@ export const TRACTION = 90
 
 // drifting: tap brake while at least this fast with the wheel turned at
 // least this far to kick into a drift; while it lasts the sideways
-// tires scrub off DRIFT_DECEL speed per second, and the centrifugal
-// pull is scaled by DRIFT_GRIP — the car slides with the curve instead
-// of being flung out, so drifts hold bends that are too fast to steer
-// through normally, at the cost of pace
+// tires scrub off DRIFT_DECEL speed per second, the centrifugal pull is
+// scaled by DRIFT_PULL and the tire grip by DRIFT_GRIP — the car slides
+// with the curve instead of being flung out, so drifts hold bends that
+// are too fast to steer through normally, at the cost of pace.
+// The drift settles at DRIFT_PULL / DRIFT_GRIP of the normal swing-out
+// (equal values cancel — no less swing, just slower to get there), and
+// DRIFT_GRIP alone sets how floaty it feels: response rate is
+// LATERAL_GRIP * DRIFT_GRIP per second
 export const DRIFT_MIN_SPEED = 250
-export const DRIFT_MIN_STEER = 0.25
+export const DRIFT_MIN_STEER = 0.2
 export const DRIFT_DECEL = 30
-export const DRIFT_GRIP = 0.2
+export const DRIFT_PULL = 0.2
+export const DRIFT_GRIP = 0.5
 // cornering hard at speed breaks the rear loose on its own: holding the
 // wheel one direction for this many continuous seconds, at or above
 // this fraction of the level's top speed, kicks into the same drift a
@@ -242,6 +247,10 @@ export const COIN_COLLIDE_LANE = 0.25
 // pulls in
 export const SKIP_COUNTDOWN = false
 export const DEBUG_KEYS = SKIP_COUNTDOWN
+// debug: every generated section climbs (no flats or descents), keeping
+// crests — and the road painting above the horizon row — constantly on
+// screen for occlusion testing
+export const FORCE_UPHILL = false
 
 // seconds on the countdown clock; reaching zero ends the run
 export const RACE_TIME = 60
@@ -344,19 +353,19 @@ export const LEVELS: LevelSpec[] = [
     straightLen: [20, 40],
     checkpointInterval: 10000,
     trafficMix: { motorcycle: 0.5, car2: 0.35, truck: 0.15 },
-    trafficCount: 6,
+    trafficCount: 5,
     maxSpeedFactor: 1,
   },
   {
     // 2: desert — tighter road, sharper turns, trucks join the flow
     name: 'desert',
     roadWidth: 55,
-    turnStrength: 1.3,
+    turnStrength: 1.15,
     curveChance: 1,
     straightLen: [20, 35],
     checkpointInterval: 10000,
     trafficMix: { motorcycle: 0.3, car2: 0.3, truck: 0.3 },
-    trafficCount: 7,
+    trafficCount: 6,
     maxSpeedFactor: 1,
     colors: { grass: 0xd7b98a, grassAlt: 0xc2a069 }, // beige sands
     skyFg: 'desert-sky-fg',
@@ -366,12 +375,12 @@ export const LEVELS: LevelSpec[] = [
     // 3: snow — narrow, twisty, heavy traffic, full speed unlocked
     name: 'snow',
     roadWidth: 50,
-    turnStrength: 1.5,
-    curveChance: 0.9,
+    turnStrength: 1.3,
+    curveChance: 1,
     straightLen: [10, 30],
     checkpointInterval: 10000,
-    trafficMix: { motorcycle: 0.1, car2: 0.3, truck: 0.3, semi: 0.3 },
-    trafficCount: 8,
+    trafficMix: { motorcycle: 0.1, car2: 0.35, truck: 0.35, semi: 0.2 },
+    trafficCount: 7,
     maxSpeedFactor: 1,
     colors: { grass: 0xffffff, grassAlt: 0xb8dcf2 }, // snow and ice
     skyFg: 'snow-sky-fg',

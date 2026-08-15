@@ -1,5 +1,6 @@
 import {
   DRAW_SEGMENTS,
+  FORCE_UPHILL,
   GAME_HEIGHT,
   RUMBLE_LENGTH,
   SEGMENT_LENGTH,
@@ -198,8 +199,9 @@ export class Track {
     }
     this.lastCurve = curve
 
-    const hill =
-      Math.random() < 0.6
+    const hill = FORCE_UPHILL
+      ? 30 + Math.random() * 50
+      : Math.random() < 0.6
         ? (Math.random() < 0.5 ? -1 : 1) * (30 + Math.random() * 50)
         : 0
 

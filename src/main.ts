@@ -1,6 +1,11 @@
 import { Game, Types } from 'phaser'
 import { Boot as BootScene } from './scenes/Boot'
 import { Game as GameScene } from './scenes/Game'
+import { setupTouchControls } from './touch'
+
+// before the game boots: the touch layout reshapes #game-container, and
+// Phaser's FIT scaling measures it at startup
+setupTouchControls()
 
 const config: Types.Core.GameConfig = {
   type: Phaser.AUTO,

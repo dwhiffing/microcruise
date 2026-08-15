@@ -12,3 +12,37 @@ body {
   justify-content: center;
   align-items: center;
 }
+
+/* PICO-8-style mobile layout (body.touch is set by src/touch.ts): the
+   game parks at the top and the touch controls fill the space below */
+body.touch #app {
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+body.touch #game-container {
+  width: 100%;
+  /* square game: full width, but never so tall the controls get pinched */
+  height: min(100vw, 62vh);
+}
+
+#touch-controls {
+  flex: 1;
+  position: relative;
+  /* the panel owns its touches: no scrolling, zooming, or text selection */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* keep the controls clear of the iPhone home indicator */
+  padding-bottom: env(safe-area-inset-bottom);
+  max-width: 530px;
+  max-height: 300px;
+  width: 100%;
+}
+
+#touch-controls svg {
+  position: absolute;
+  inset: 0;
+}
